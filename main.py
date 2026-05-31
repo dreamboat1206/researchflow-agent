@@ -1,6 +1,8 @@
 import argparse
+import json
 
 from storage.sqlite_store import init_db
+from tools.pdf_parser import parse_pdf
 
 
 def main() -> None:
@@ -14,6 +16,9 @@ def main() -> None:
         help="Path to the project configuration file.",
     )
 
+    parse_pdf_parser = subparsers.add_parser("parse-pdf", help="Parse text from a PDF file.")
+    parse_pdf_parser.add_argument("file_path", help="Path to the PDF file.")
+
     parser.add_argument(
         "--version",
         action="version",
@@ -24,6 +29,11 @@ def main() -> None:
     if args.command == "init-db":
         db_path = init_db(args.config)
         print(f"Initialized SQLite database at {db_path}")
+        return
+
+    if args.command == "parse-pdf":
+        result = parse_pdf(args.file_path)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
         return
 
     parser.print_help()
