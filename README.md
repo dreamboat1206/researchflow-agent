@@ -56,6 +56,17 @@ The schema is defined in `storage/schema.sql` and currently includes:
 - `figures` for extracted figure metadata linked to papers
 - `traces` for future agent and retrieval traces
 
+## Chunking
+
+PDF page text can be split with `tools.text_splitter.split_pages_to_chunks`. The splitter works page by page with a fixed character window and configurable overlap. Each chunk keeps:
+
+- `paper_id` from the caller
+- stable readable `chunk_id` in the form `paper_id-p{page}-c{index}`
+- source `page`
+- normalized `chunk_text`
+
+Empty pages and empty chunk text are skipped. `overlap` must be smaller than `chunk_size`.
+
 ## Quick Start
 
 Create and activate a virtual environment:
