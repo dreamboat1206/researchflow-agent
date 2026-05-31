@@ -76,7 +76,7 @@ researchflow_agent/
 7. 总结结果和下一步建议
 
 不要引入过重依赖，不要写无法运行的伪代码。
-git checkout -b day01-project-init
+day1 是main分支
 git checkout -b day02-sqlite-store
 git checkout -b day03-pdf-parser
 git checkout -b day04-text-chunker
