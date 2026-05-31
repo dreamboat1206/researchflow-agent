@@ -1,0 +1,18 @@
+git checkout main
+git pull
+git checkout -b dayXX-task-name
+
+# 让 Codex 完成当天任务
+# 手动测试
+
+python -m pytest -q
+
+git status
+git add .
+git commit -m "feat: dayXX task summary"
+
+git checkout main
+git merge dayXX-task-name
+git push
+
+git branch -d dayXX-task-name
