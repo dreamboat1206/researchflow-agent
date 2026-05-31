@@ -76,3 +76,31 @@ researchflow_agent/
 7. 总结结果和下一步建议
 
 不要引入过重依赖，不要写无法运行的伪代码。
+git checkout -b day01-project-init
+git checkout -b day02-sqlite-store
+git checkout -b day03-pdf-parser
+git checkout -b day04-text-chunker
+git checkout -b day05-qdrant-ingest
+git checkout -b day06-text-search
+git checkout -b day07-paper-rag
+git checkout -b day08-figure-schema
+git checkout -b day09-figure-extract
+git checkout -b day10-caption-match
+git checkout -b day11-figure-gallery
+git checkout -b day12-figure-text-search
+git checkout -b day13-clip-image-search
+git checkout -b day14-fusion-retrieval
+git checkout -b day15-langgraph-state
+git checkout -b day16-router-agent
+git checkout -b day17-paper-qa-graph
+git checkout -b day18-figure-search-graph
+git checkout -b day19-figure-qa-graph
+git checkout -b day20-evaluator-agent
+git checkout -b day21-observability
+git checkout -b day22-eval-datasets
+git checkout -b day23-text-eval
+git checkout -b day24-figure-eval
+git checkout -b day25-rag-eval
+git checkout -b day26-stability
+git checkout -b day27-readme-demo
+git checkout -b day28-final-polish
