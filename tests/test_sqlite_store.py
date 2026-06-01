@@ -9,6 +9,7 @@ from storage.sqlite_store import (
     insert_figure,
     insert_paper,
     list_papers,
+    load_config,
 )
 
 
@@ -78,6 +79,23 @@ def test_insert_and_query_paper_chunk_figure() -> None:
     assert figure_id > 0
     assert chunk_count == 1
     assert figure_count == 1
+
+
+def test_load_config_applies_environment_overrides(monkeypatch) -> None:
+    config_path = _write_config()
+    monkeypatch.setenv("DATABASE_PATH", "data/override.db")
+    monkeypatch.setenv("QDRANT_URL", "http://qdrant:6333")
+    monkeypatch.setenv("QDRANT_COLLECTION", "papers_text")
+    monkeypatch.setenv("EMBEDDING_LOCAL_FILES_ONLY", "true")
+    monkeypatch.setenv("API_PORT", "9000")
+
+    config = load_config(config_path)
+
+    assert config["database"]["path"] == "data/override.db"
+    assert config["qdrant"]["url"] == "http://qdrant:6333"
+    assert config["qdrant"]["collection_name"] == "papers_text"
+    assert config["models"]["embedding_local_files_only"] is True
+    assert config["api"]["port"] == 9000
 
 
 def _write_config() -> Path:

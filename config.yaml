@@ -7,11 +7,13 @@ database:
   path: data/researchflow.db
 
 qdrant:
+  mode: http
   url: http://localhost:6333
-  collection_name: researchflow_documents
+  collection_name: papers_text
 
 models:
   embedding_model: sentence-transformers/all-MiniLM-L6-v2
+  embedding_local_files_only: true
   llm_model: gpt-4.1-mini
 
 storage:
@@ -21,4 +23,3 @@ storage:
 api:
   host: 127.0.0.1
   port: 8000
-

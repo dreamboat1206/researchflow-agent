@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,7 @@ def load_config(config_path: str | Path = DEFAULT_CONFIG_PATH) -> dict[str, Any]
     path = Path(config_path)
     with path.open("r", encoding="utf-8") as file:
         config = yaml.safe_load(file) or {}
+    _apply_env_overrides(config)
     return config
 
 
@@ -163,6 +165,40 @@ def _to_json(value: dict[str, Any] | None) -> str | None:
     if value is None:
         return None
     return json.dumps(value, ensure_ascii=False)
+
+
+def _apply_env_overrides(config: dict[str, Any]) -> None:
+    _set_if_env(config, ("database", "path"), "DATABASE_PATH")
+    _set_if_env(config, ("qdrant", "url"), "QDRANT_URL")
+    _set_if_env(config, ("qdrant", "collection_name"), "QDRANT_COLLECTION")
+    _set_if_env(config, ("models", "embedding_model"), "EMBEDDING_MODEL")
+    _set_bool_if_env(config, ("models", "embedding_local_files_only"), "EMBEDDING_LOCAL_FILES_ONLY")
+    _set_if_env(config, ("api", "host"), "API_HOST")
+    _set_int_if_env(config, ("api", "port"), "API_PORT")
+
+
+def _set_if_env(config: dict[str, Any], path: tuple[str, str], env_name: str) -> None:
+    value = os.environ.get(env_name)
+    if value is None:
+        return
+    section, key = path
+    config.setdefault(section, {})[key] = value
+
+
+def _set_bool_if_env(config: dict[str, Any], path: tuple[str, str], env_name: str) -> None:
+    value = os.environ.get(env_name)
+    if value is None:
+        return
+    section, key = path
+    config.setdefault(section, {})[key] = value.lower() in {"1", "true", "yes", "on"}
+
+
+def _set_int_if_env(config: dict[str, Any], path: tuple[str, str], env_name: str) -> None:
+    value = os.environ.get(env_name)
+    if value is None:
+        return
+    section, key = path
+    config.setdefault(section, {})[key] = int(value)
 
 
 def _remove_empty_failed_db(db_path: Path) -> None:
