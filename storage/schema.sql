@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS figures (
     page_number INTEGER,
     figure_type TEXT NOT NULL DEFAULT 'other',
     caption TEXT,
+    nearby_text TEXT,
     image_path TEXT,
     metadata TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,

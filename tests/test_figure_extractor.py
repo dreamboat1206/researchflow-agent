@@ -48,6 +48,38 @@ def test_extract_figures_saves_images_and_writes_sqlite() -> None:
     assert row["figure_type"] == "other"
 
 
+def test_extract_figures_renders_text_table_as_figure_record() -> None:
+    config_path = _write_config()
+    db_path = init_db(config_path)
+    paper_id = insert_paper(title="Paper With Table", config_path=config_path)
+    pdf_path = Path("data/test_figure_extractor") / f"table-{uuid.uuid4().hex}.pdf"
+    pdf_path.parent.mkdir(parents=True, exist_ok=True)
+    _write_pdf_with_text_table(pdf_path)
+
+    figures = extract_figures_from_pdf(
+        pdf_path,
+        paper_id=paper_id,
+        config_path=config_path,
+        min_width=50,
+        min_height=50,
+    )
+
+    assert len(figures) == 1
+    table = figures[0]
+    assert table["figure_id"] == f"{paper_id}_fig_1_1"
+    assert table["figure_type"] == "table"
+    assert table["caption"] == "Table 1: Dataset statistics."
+    assert Path(table["image_path"]).exists()
+
+    with sqlite3.connect(db_path) as connection:
+        connection.row_factory = sqlite3.Row
+        row = connection.execute("SELECT * FROM figures").fetchone()
+
+    assert row["figure_id"] == f"{paper_id}_fig_1_1"
+    assert row["figure_type"] == "table"
+    assert row["caption"] == "Table 1: Dataset statistics."
+
+
 def test_extract_figures_can_skip_sqlite_write() -> None:
     config_path = _write_config()
     db_path = init_db(config_path)
@@ -76,6 +108,17 @@ def _write_pdf_with_images(pdf_path: Path) -> None:
     page = document.new_page(width=300, height=300)
     page.insert_image(fitz.Rect(30, 30, 150, 120), stream=_make_png(120, 90))
     page.insert_image(fitz.Rect(180, 30, 190, 40), stream=_make_png(10, 10))
+    document.save(pdf_path)
+    document.close()
+
+
+def _write_pdf_with_text_table(pdf_path: Path) -> None:
+    document = fitz.open()
+    page = document.new_page(width=400, height=400)
+    page.insert_text((40, 80), "Table 1: Dataset statistics.")
+    page.insert_text((40, 120), "Dataset AP AP50")
+    page.insert_text((40, 145), "VisDrone 36.8 60.3")
+    page.insert_text((40, 170), "UAVDT 38.1 62.6")
     document.save(pdf_path)
     document.close()
 

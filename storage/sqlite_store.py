@@ -113,6 +113,7 @@ def insert_figure(
     figure_index: int,
     page_number: int | None = None,
     caption: str | None = None,
+    nearby_text: str | None = None,
     image_path: str | None = None,
     figure_type: str | FigureType = FigureType.OTHER,
     figure_id: str | None = None,
@@ -132,13 +133,40 @@ def insert_figure(
 
     with connect(db_path) as connection:
         _ensure_figure_columns(connection)
+        existing_row = connection.execute(
+            "SELECT id FROM figures WHERE figure_id = ?",
+            (figure_id_value,),
+        ).fetchone()
+        if existing_row is not None:
+            connection.execute(
+                """
+                UPDATE figures
+                SET paper_id = ?, figure_index = ?, page = ?, page_number = ?, figure_type = ?,
+                    caption = ?, nearby_text = ?, image_path = ?, metadata = ?
+                WHERE figure_id = ?
+                """,
+                (
+                    paper_id,
+                    figure_index,
+                    page_value,
+                    page_value,
+                    figure_type_value,
+                    caption,
+                    nearby_text,
+                    image_path,
+                    _to_json(metadata),
+                    figure_id_value,
+                ),
+            )
+            return int(existing_row["id"])
+
         cursor = connection.execute(
             """
             INSERT INTO figures (
                 figure_id, paper_id, figure_index, page, page_number, figure_type,
-                caption, image_path, metadata
+                caption, nearby_text, image_path, metadata
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 figure_id_value,
@@ -148,6 +176,7 @@ def insert_figure(
                 page_value,
                 figure_type_value,
                 caption,
+                nearby_text,
                 image_path,
                 _to_json(metadata),
             ),
@@ -165,12 +194,47 @@ def insert_figure_record(
         figure_index=record.figure_index,
         page=record.page,
         caption=record.caption,
+        nearby_text=None,
         image_path=record.image_path,
         figure_type=record.figure_type,
         figure_id=record.figure_id,
         metadata=metadata,
         config_path=config_path,
     )
+
+
+def update_figure_caption(
+    figure_id: str,
+    caption: str | None,
+    nearby_text: str | None = None,
+    config_path: str | Path = DEFAULT_CONFIG_PATH,
+) -> None:
+    db_path = get_db_path(config_path)
+    with connect(db_path) as connection:
+        _ensure_figure_columns(connection)
+        connection.execute(
+            """
+            UPDATE figures
+            SET caption = ?, nearby_text = ?
+            WHERE figure_id = ?
+            """,
+            (caption, nearby_text, figure_id),
+        )
+
+
+def list_figures(config_path: str | Path = DEFAULT_CONFIG_PATH) -> list[dict[str, Any]]:
+    db_path = get_db_path(config_path)
+    with connect(db_path) as connection:
+        _ensure_figure_columns(connection)
+        rows = connection.execute(
+            """
+            SELECT id, figure_id, paper_id, figure_index, page, page_number, figure_type,
+                   caption, nearby_text, image_path, metadata, created_at
+            FROM figures
+            ORDER BY paper_id ASC, page ASC, figure_index ASC, id ASC
+            """
+        ).fetchall()
+    return [_figure_from_row(row) for row in rows]
 
 
 def list_papers(config_path: str | Path = DEFAULT_CONFIG_PATH) -> list[dict[str, Any]]:
@@ -268,6 +332,8 @@ def _ensure_figure_columns(connection: sqlite3.Connection) -> None:
         connection.execute("ALTER TABLE figures ADD COLUMN page INTEGER")
     if "figure_type" not in columns:
         connection.execute("ALTER TABLE figures ADD COLUMN figure_type TEXT NOT NULL DEFAULT 'other'")
+    if "nearby_text" not in columns:
+        connection.execute("ALTER TABLE figures ADD COLUMN nearby_text TEXT")
     connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_figures_figure_id_unique ON figures (figure_id)")
 
 
@@ -289,6 +355,23 @@ def _paper_from_row(row: sqlite3.Row) -> dict[str, Any]:
         "year": row["year"],
         "source_path": row["source_path"],
         "abstract": row["abstract"],
+        "metadata": _from_json(row["metadata"]),
+        "created_at": row["created_at"],
+    }
+
+
+def _figure_from_row(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "figure_id": row["figure_id"],
+        "paper_id": row["paper_id"],
+        "figure_index": row["figure_index"],
+        "page": row["page"],
+        "page_number": row["page_number"],
+        "figure_type": row["figure_type"],
+        "caption": row["caption"],
+        "nearby_text": row["nearby_text"],
+        "image_path": row["image_path"],
         "metadata": _from_json(row["metadata"]),
         "created_at": row["created_at"],
     }

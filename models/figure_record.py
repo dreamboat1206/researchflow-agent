@@ -23,6 +23,7 @@ class FigureRecord(BaseModel):
     figure_index: int = Field(..., ge=1)
     image_path: str
     caption: str | None = None
+    nearby_text: str | None = None
     figure_type: FigureType = FigureType.OTHER
     figure_id: str | None = None
 
@@ -45,6 +46,7 @@ class FigureRecord(BaseModel):
             "figure_index": self.figure_index,
             "image_path": self.image_path,
             "caption": self.caption,
+            "nearby_text": self.nearby_text,
         }
 
 

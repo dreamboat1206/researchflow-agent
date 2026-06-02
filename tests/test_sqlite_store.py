@@ -111,6 +111,40 @@ def test_insert_figure_record_writes_required_metadata() -> None:
     assert row["figure_type"] == "pipeline"
 
 
+def test_insert_figure_updates_existing_figure_id() -> None:
+    config_path = _write_config()
+    db_path = init_db(config_path)
+    paper_id = insert_paper(title="Figure Upsert", config_path=config_path)
+
+    first_id = insert_figure(
+        paper_id=paper_id,
+        figure_index=1,
+        page=2,
+        image_path="data/figures/old.png",
+        figure_id=f"{paper_id}_fig_2_1",
+        caption="Old caption.",
+        config_path=config_path,
+    )
+    second_id = insert_figure(
+        paper_id=paper_id,
+        figure_index=1,
+        page=2,
+        image_path="data/figures/new.png",
+        figure_id=f"{paper_id}_fig_2_1",
+        caption="New caption.",
+        config_path=config_path,
+    )
+
+    with sqlite3.connect(db_path) as connection:
+        row = connection.execute(
+            "SELECT COUNT(*), caption, image_path FROM figures WHERE figure_id = ?",
+            (f"{paper_id}_fig_2_1",),
+        ).fetchone()
+
+    assert first_id == second_id
+    assert row == (1, "New caption.", "data/figures/new.png")
+
+
 def test_load_config_applies_environment_overrides(monkeypatch) -> None:
     config_path = _write_config()
     monkeypatch.setenv("DATABASE_PATH", "data/override.db")

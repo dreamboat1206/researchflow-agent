@@ -28,7 +28,9 @@ st.caption("A minimal workspace for research document workflows.")
 
 api_base_url = _api_base_url()
 
-home_tab, search_tab, qa_tab = st.tabs(["Overview", "Paper Search", "Paper QA"])
+home_tab, search_tab, qa_tab, figures_tab = st.tabs(
+    ["Overview", "Paper Search", "Paper QA", "Figure Gallery"]
+)
 
 with home_tab:
     st.write("Project scaffold is ready. Use the API health check to verify the backend.")
@@ -98,3 +100,28 @@ with qa_tab:
                     page = citation.get("page") or "-"
                     chunk_id = citation.get("chunk_id") or "-"
                     st.caption(f"{title} | page: {page} | chunk_id: {chunk_id}")
+
+with figures_tab:
+    if st.button("Load figures"):
+        try:
+            response = httpx.get(f"{api_base_url}/figures", timeout=30)
+            response.raise_for_status()
+            figures = response.json()
+        except httpx.HTTPError as exc:
+            st.error(f"Figure request failed: {exc}")
+        else:
+            if not figures:
+                st.info("No figures found.")
+            for figure in figures:
+                with st.container(border=True):
+                    st.subheader(figure.get("figure_id") or "Figure")
+                    st.caption(
+                        f"paper: {figure.get('paper_id')} | page: {figure.get('page')} | "
+                        f"type: {figure.get('figure_type')}"
+                    )
+                    if figure.get("caption"):
+                        st.write(figure["caption"])
+                    if figure.get("nearby_text"):
+                        st.caption(figure["nearby_text"])
+                    if figure.get("image_path"):
+                        st.code(figure["image_path"])
