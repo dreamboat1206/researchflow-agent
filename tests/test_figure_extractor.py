@@ -33,9 +33,11 @@ def test_extract_figures_saves_images_and_writes_sqlite() -> None:
     assert figure["page"] == 1
     assert figure["width"] >= 120
     assert figure["height"] >= 90
-    image_path = Path(figure["image_path"])
+    image_path = config_path.parent / figure["image_path"]
+    assert not Path(figure["image_path"]).is_absolute()
+    assert figure["image_path"].startswith(f"data/figures/{paper_id}/")
     assert image_path.exists()
-    assert image_path.parent == (config_path.parent / "data/figures" / str(paper_id)).resolve()
+    assert image_path.parent.resolve() == (config_path.parent / "data/figures" / str(paper_id)).resolve()
 
     with sqlite3.connect(db_path) as connection:
         connection.row_factory = sqlite3.Row
@@ -44,7 +46,7 @@ def test_extract_figures_saves_images_and_writes_sqlite() -> None:
     assert row["figure_id"] == f"{paper_id}_fig_1_1"
     assert row["paper_id"] == paper_id
     assert row["page"] == 1
-    assert row["image_path"] == str(image_path)
+    assert row["image_path"] == figure["image_path"]
     assert row["figure_type"] == "other"
 
 
@@ -69,7 +71,9 @@ def test_extract_figures_renders_text_table_as_figure_record() -> None:
     assert table["figure_id"] == f"{paper_id}_fig_1_1"
     assert table["figure_type"] == "table"
     assert table["caption"] == "Table 1: Dataset statistics."
-    assert Path(table["image_path"]).exists()
+    assert not Path(table["image_path"]).is_absolute()
+    assert table["image_path"].startswith(f"data/figures/{paper_id}/")
+    assert (config_path.parent / table["image_path"]).exists()
 
     with sqlite3.connect(db_path) as connection:
         connection.row_factory = sqlite3.Row

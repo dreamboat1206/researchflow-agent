@@ -1,4 +1,8 @@
+from __future__ import annotations
+
 import os
+from pathlib import Path
+from typing import Any
 
 import httpx
 import streamlit as st
@@ -16,6 +20,45 @@ def _format_score(score: object) -> str:
     if isinstance(score, int | float):
         return f"{score:.4f}"
     return "-"
+
+
+def _figure_query_params(paper_id_text: str, title_query: str) -> dict[str, str | int]:
+    params: dict[str, str | int] = {}
+    if paper_id_text.strip():
+        params["paper_id"] = int(paper_id_text.strip())
+    if title_query.strip():
+        params["title"] = title_query.strip()
+    return params
+
+
+def _figure_image_path(image_path: str | None) -> str | None:
+    if not image_path:
+        return None
+    path = Path(image_path)
+    if path.exists():
+        return str(path)
+    if not path.is_absolute():
+        candidate = Path.cwd() / path
+        if candidate.exists():
+            return str(candidate)
+    container_prefix = "/app/"
+    if image_path.startswith(container_prefix):
+        candidate = Path(image_path[len(container_prefix) :])
+        if candidate.exists():
+            return str(candidate)
+    normalized_path = image_path.replace("\\", "/")
+    data_index = normalized_path.lower().find("data/")
+    if data_index >= 0:
+        candidate = Path(normalized_path[data_index:])
+        if candidate.exists():
+            return str(candidate)
+    return image_path
+
+
+def _load_figures(api_base_url: str, params: dict[str, str | int]) -> list[dict[str, Any]]:
+    response = httpx.get(f"{api_base_url}/figures", params=params, timeout=30)
+    response.raise_for_status()
+    return response.json()
 
 
 st.set_page_config(
@@ -102,26 +145,44 @@ with qa_tab:
                     st.caption(f"{title} | page: {page} | chunk_id: {chunk_id}")
 
 with figures_tab:
-    if st.button("Load figures"):
+    st.subheader("Figure Gallery / 图表浏览")
+    with st.form("figure-filter-form"):
+        filter_cols = st.columns([1, 3, 1])
+        paper_id_text = filter_cols[0].text_input("paper_id", placeholder="1")
+        title_query = filter_cols[1].text_input("Paper title", placeholder="ZoomDet")
+        gallery_submitted = filter_cols[2].form_submit_button("Load")
+
+    if gallery_submitted:
         try:
-            response = httpx.get(f"{api_base_url}/figures", timeout=30)
-            response.raise_for_status()
-            figures = response.json()
+            figures = _load_figures(api_base_url, _figure_query_params(paper_id_text, title_query))
+        except ValueError:
+            st.error("paper_id must be a number.")
         except httpx.HTTPError as exc:
             st.error(f"Figure request failed: {exc}")
         else:
             if not figures:
-                st.info("No figures found.")
+                st.info("No figures found. Extract figures first, then reload the gallery.")
             for figure in figures:
+                title = figure.get("paper_title") or f"Paper {figure.get('paper_id')}"
+                caption = figure.get("caption") or "No caption matched yet."
                 with st.container(border=True):
-                    st.subheader(figure.get("figure_id") or "Figure")
-                    st.caption(
-                        f"paper: {figure.get('paper_id')} | page: {figure.get('page')} | "
-                        f"type: {figure.get('figure_type')}"
-                    )
-                    if figure.get("caption"):
-                        st.write(figure["caption"])
-                    if figure.get("nearby_text"):
-                        st.caption(figure["nearby_text"])
-                    if figure.get("image_path"):
-                        st.code(figure["image_path"])
+                    image_col, detail_col = st.columns([1, 2])
+                    image_path = _figure_image_path(figure.get("image_path"))
+                    with image_col:
+                        if image_path and Path(image_path).exists():
+                            st.image(image_path, use_container_width=True)
+                        else:
+                            st.code(image_path or "No image path")
+                    with detail_col:
+                        st.subheader(figure.get("figure_id") or "Figure")
+                        st.caption(
+                            f"{title} | page: {figure.get('page') or '-'} | "
+                            f"type: {figure.get('figure_type') or 'other'}"
+                        )
+                        st.write(caption)
+                        with st.expander("Details"):
+                            st.write(f"image_path: {figure.get('image_path') or '-'}")
+                            st.write(f"paper_id: {figure.get('paper_id')}")
+                            st.write(f"page: {figure.get('page') or '-'}")
+                            st.write(f"caption: {figure.get('caption') or '-'}")
+                            st.write(f"nearby_text: {figure.get('nearby_text') or '-'}")

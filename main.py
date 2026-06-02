@@ -109,7 +109,11 @@ def ingest_pdf(
     parsed_pdf = parse_pdf(file_path)
     paper_id = insert_paper(
         title=parsed_pdf.get("title") or file_path,
+        authors=parsed_pdf.get("authors"),
+        year=parsed_pdf.get("year"),
         source_path=parsed_pdf["file_path"],
+        abstract=parsed_pdf.get("abstract"),
+        metadata=parsed_pdf.get("metadata"),
         config_path=config_path,
     )
     chunks = split_pages_to_chunks(

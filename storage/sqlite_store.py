@@ -222,17 +222,36 @@ def update_figure_caption(
         )
 
 
-def list_figures(config_path: str | Path = DEFAULT_CONFIG_PATH) -> list[dict[str, Any]]:
+def list_figures(
+    paper_id: int | None = None,
+    title_query: str | None = None,
+    config_path: str | Path = DEFAULT_CONFIG_PATH,
+) -> list[dict[str, Any]]:
     db_path = get_db_path(config_path)
+    where_clauses: list[str] = []
+    parameters: list[Any] = []
+    if paper_id is not None:
+        where_clauses.append("figures.paper_id = ?")
+        parameters.append(paper_id)
+    if title_query:
+        where_clauses.append("LOWER(papers.title) LIKE ?")
+        parameters.append(f"%{title_query.lower()}%")
+    where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+
     with connect(db_path) as connection:
         _ensure_figure_columns(connection)
         rows = connection.execute(
-            """
-            SELECT id, figure_id, paper_id, figure_index, page, page_number, figure_type,
-                   caption, nearby_text, image_path, metadata, created_at
+            f"""
+            SELECT figures.id, figures.figure_id, figures.paper_id, papers.title AS paper_title,
+                   figures.figure_index, figures.page, figures.page_number, figures.figure_type,
+                   figures.caption, figures.nearby_text, figures.image_path, figures.metadata,
+                   figures.created_at
             FROM figures
-            ORDER BY paper_id ASC, page ASC, figure_index ASC, id ASC
-            """
+            LEFT JOIN papers ON papers.id = figures.paper_id
+            {where_sql}
+            ORDER BY figures.paper_id ASC, figures.page ASC, figures.figure_index ASC, figures.id ASC
+            """,
+            parameters,
         ).fetchall()
     return [_figure_from_row(row) for row in rows]
 
@@ -365,6 +384,7 @@ def _figure_from_row(row: sqlite3.Row) -> dict[str, Any]:
         "id": row["id"],
         "figure_id": row["figure_id"],
         "paper_id": row["paper_id"],
+        "paper_title": row["paper_title"] if "paper_title" in row.keys() else None,
         "figure_index": row["figure_index"],
         "page": row["page"],
         "page_number": row["page_number"],

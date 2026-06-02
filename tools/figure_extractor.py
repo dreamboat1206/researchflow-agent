@@ -49,13 +49,14 @@ def extract_figures_from_pdf(
                 extension = _image_extension(image.get("ext"))
                 image_path = output_dir / f"{figure_id}.{extension}"
                 image_path.write_bytes(image["image"])
+                stored_image_path = _stored_image_path(config_path, image_path)
 
                 figure = {
                     "figure_id": figure_id,
                     "paper_id": paper_id,
                     "page": page_index,
                     "figure_index": figure_index,
-                    "image_path": str(image_path),
+                    "image_path": stored_image_path,
                     "width": width,
                     "height": height,
                     "bbox": _image_bbox(page, xref),
@@ -68,6 +69,7 @@ def extract_figures_from_pdf(
             file_path=path,
             paper_id=paper_id,
             output_dir=output_dir,
+            config_path=config_path,
             captions_by_page=captions_by_page,
             existing_figures=figures,
             page_counts=page_counts,
@@ -123,6 +125,7 @@ def _extract_text_tables(
     file_path: Path,
     paper_id: int,
     output_dir: Path,
+    config_path: str | Path,
     captions_by_page: dict[int, list[dict[str, Any]]],
     existing_figures: list[dict[str, Any]],
     page_counts: dict[int, int],
@@ -148,13 +151,14 @@ def _extract_text_tables(
                 image_path = output_dir / f"{figure_id}.png"
                 pixmap = page.get_pixmap(clip=clip, matrix=fitz.Matrix(2, 2), alpha=False)
                 pixmap.save(image_path)
+                stored_image_path = _stored_image_path(config_path, image_path)
                 table_figures.append(
                     {
                         "figure_id": figure_id,
                         "paper_id": paper_id,
                         "page": page_index,
                         "figure_index": figure_index,
-                        "image_path": str(image_path),
+                        "image_path": stored_image_path,
                         "width": pixmap.width,
                         "height": pixmap.height,
                         "bbox": (float(clip.x0), float(clip.y0), float(clip.x1), float(clip.y1)),
@@ -165,6 +169,14 @@ def _extract_text_tables(
                     }
                 )
     return table_figures
+
+
+def _stored_image_path(config_path: str | Path, image_path: Path) -> str:
+    base_dir = Path(config_path).resolve().parent
+    try:
+        return image_path.resolve().relative_to(base_dir).as_posix()
+    except ValueError:
+        return image_path.as_posix()
 
 
 def _table_clip(page: fitz.Page, caption_bbox: Any) -> fitz.Rect:
