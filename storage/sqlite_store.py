@@ -173,6 +173,10 @@ def _apply_env_overrides(config: dict[str, Any]) -> None:
     _set_if_env(config, ("qdrant", "collection_name"), "QDRANT_COLLECTION")
     _set_if_env(config, ("models", "embedding_model"), "EMBEDDING_MODEL")
     _set_bool_if_env(config, ("models", "embedding_local_files_only"), "EMBEDDING_LOCAL_FILES_ONLY")
+    _set_if_env(config, ("models", "llm_model"), "LLM_MODEL")
+    _set_if_env(config, ("llm", "provider"), "LLM_PROVIDER")
+    _set_if_env(config, ("llm", "base_url"), "OPENAI_BASE_URL")
+    _set_if_env(config, ("llm", "api_key"), "OPENAI_API_KEY")
     _set_if_env(config, ("api", "host"), "API_HOST")
     _set_int_if_env(config, ("api", "port"), "API_PORT")
 

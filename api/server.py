@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 
 from api.routes_paper import router as paper_router
+from api.routes_qa import router as qa_router
 
 
 app = FastAPI(
@@ -10,6 +11,7 @@ app = FastAPI(
 )
 
 app.include_router(paper_router)
+app.include_router(qa_router)
 
 
 @app.get("/health")

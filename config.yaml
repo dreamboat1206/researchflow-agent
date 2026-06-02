@@ -16,6 +16,11 @@ models:
   embedding_local_files_only: true
   llm_model: gpt-4.1-mini
 
+llm:
+  provider: mock
+  base_url:
+  api_key:
+
 storage:
   data_dir: data
   upload_dir: data/uploads

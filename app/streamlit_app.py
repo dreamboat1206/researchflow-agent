@@ -12,6 +12,12 @@ def _api_base_url() -> str:
     return f"http://{host}:{port}"
 
 
+def _format_score(score: object) -> str:
+    if isinstance(score, int | float):
+        return f"{score:.4f}"
+    return "-"
+
+
 st.set_page_config(
     page_title="ResearchFlow-Agent",
     layout="wide",
@@ -22,7 +28,7 @@ st.caption("A minimal workspace for research document workflows.")
 
 api_base_url = _api_base_url()
 
-home_tab, search_tab = st.tabs(["概览", "论文搜索"])
+home_tab, search_tab, qa_tab = st.tabs(["Overview", "Paper Search", "Paper QA"])
 
 with home_tab:
     st.write("Project scaffold is ready. Use the API health check to verify the backend.")
@@ -31,13 +37,13 @@ with home_tab:
 
 with search_tab:
     with st.form("paper-search-form"):
-        query = st.text_input("搜索文本", placeholder="输入论文主题、方法或关键词")
-        top_k = st.slider("结果数量", min_value=1, max_value=20, value=5)
-        submitted = st.form_submit_button("搜索")
+        query = st.text_input("Search text", placeholder="Enter a paper topic, method, or keyword")
+        top_k = st.slider("Number of results", min_value=1, max_value=20, value=5)
+        submitted = st.form_submit_button("Search")
 
     if submitted:
         if not query.strip():
-            st.warning("请输入搜索文本。")
+            st.warning("Please enter search text.")
         else:
             try:
                 response = httpx.post(
@@ -48,16 +54,47 @@ with search_tab:
                 response.raise_for_status()
                 results = response.json()["results"]
             except httpx.HTTPError as exc:
-                st.error(f"搜索请求失败：{exc}")
+                st.error(f"Search request failed: {exc}")
             else:
                 if not results:
-                    st.info("没有找到相关 chunk。")
+                    st.info("No relevant chunks found.")
                 for result in results:
                     title = result.get("title") or f"Paper {result.get('paper_id')}"
                     page = result.get("page") or "-"
-                    score = result.get("score")
-                    score_text = f"{score:.4f}" if isinstance(score, int | float) else "-"
                     with st.container(border=True):
                         st.subheader(title)
-                        st.caption(f"page: {page} | score: {score_text}")
+                        st.caption(f"page: {page} | score: {_format_score(result.get('score'))}")
                         st.write(result.get("chunk_text") or "")
+
+with qa_tab:
+    with st.form("paper-qa-form"):
+        question = st.text_input("Question", placeholder="Ask a question about ingested papers")
+        qa_top_k = st.slider("Context chunks", min_value=1, max_value=20, value=5)
+        qa_submitted = st.form_submit_button("Ask")
+
+    if qa_submitted:
+        if not question.strip():
+            st.warning("Please enter a question.")
+        else:
+            try:
+                response = httpx.post(
+                    f"{api_base_url}/qa/paper",
+                    json={"question": question, "top_k": qa_top_k},
+                    timeout=60,
+                )
+                response.raise_for_status()
+                result = response.json()
+            except httpx.HTTPError as exc:
+                st.error(f"QA request failed: {exc}")
+            else:
+                st.subheader("Answer")
+                st.write(result["answer"])
+                st.subheader("Citations")
+                citations = result.get("citations", [])
+                if not citations:
+                    st.info("No citations returned.")
+                for citation in citations:
+                    title = citation.get("title") or "Unknown paper"
+                    page = citation.get("page") or "-"
+                    chunk_id = citation.get("chunk_id") or "-"
+                    st.caption(f"{title} | page: {page} | chunk_id: {chunk_id}")
