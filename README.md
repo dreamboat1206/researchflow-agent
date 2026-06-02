@@ -53,8 +53,46 @@ The schema is defined in `storage/schema.sql` and currently includes:
 
 - `papers` for paper-level metadata
 - `chunks` for text chunks linked to papers
-- `figures` for extracted figure metadata linked to papers
+- `figures` for extracted figure/table metadata linked to papers
 - `traces` for future agent and retrieval traces
+
+## Figure And Table Metadata
+
+Figure and table metadata uses `models.figure_record.FigureRecord`. The stable
+`figure_id` rule is:
+
+```text
+{paper_id}_fig_{page}_{index}
+```
+
+Supported `figure_type` values are:
+
+- `architecture`
+- `pipeline`
+- `chart`
+- `table`
+- `ablation`
+- `result`
+- `dataset`
+- `other`
+
+The SQLite `figures` table stores:
+
+- `figure_id`
+- `paper_id`
+- `figure_index`
+- `page`
+- `page_number` for backward compatibility
+- `figure_type`
+- `caption`
+- `image_path`
+- `metadata`
+
+Extracted images should be saved under:
+
+```text
+data/figures/
+```
 
 ## Chunking
 

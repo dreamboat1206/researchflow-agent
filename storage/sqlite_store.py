@@ -8,6 +8,8 @@ from typing import Any
 
 import yaml
 
+from models.figure_record import FigureRecord, FigureType, build_figure_id
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config.yaml"
@@ -112,20 +114,63 @@ def insert_figure(
     page_number: int | None = None,
     caption: str | None = None,
     image_path: str | None = None,
+    figure_type: str | FigureType = FigureType.OTHER,
+    figure_id: str | None = None,
+    page: int | None = None,
     metadata: dict[str, Any] | None = None,
     config_path: str | Path = DEFAULT_CONFIG_PATH,
 ) -> int:
     db_path = get_db_path(config_path)
+    page_value = page if page is not None else page_number
+    if page_value is None:
+        raise ValueError("page or page_number is required for figure metadata")
+    if not image_path:
+        raise ValueError("image_path is required for figure metadata")
+
+    figure_type_value = FigureType(figure_type).value
+    figure_id_value = figure_id or build_figure_id(paper_id, page_value, figure_index)
 
     with connect(db_path) as connection:
+        _ensure_figure_columns(connection)
         cursor = connection.execute(
             """
-            INSERT INTO figures (paper_id, figure_index, page_number, caption, image_path, metadata)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO figures (
+                figure_id, paper_id, figure_index, page, page_number, figure_type,
+                caption, image_path, metadata
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (paper_id, figure_index, page_number, caption, image_path, _to_json(metadata)),
+            (
+                figure_id_value,
+                paper_id,
+                figure_index,
+                page_value,
+                page_value,
+                figure_type_value,
+                caption,
+                image_path,
+                _to_json(metadata),
+            ),
         )
         return int(cursor.lastrowid)
+
+
+def insert_figure_record(
+    record: FigureRecord,
+    metadata: dict[str, Any] | None = None,
+    config_path: str | Path = DEFAULT_CONFIG_PATH,
+) -> int:
+    return insert_figure(
+        paper_id=record.paper_id,
+        figure_index=record.figure_index,
+        page=record.page,
+        caption=record.caption,
+        image_path=record.image_path,
+        figure_type=record.figure_type,
+        figure_id=record.figure_id,
+        metadata=metadata,
+        config_path=config_path,
+    )
 
 
 def list_papers(config_path: str | Path = DEFAULT_CONFIG_PATH) -> list[dict[str, Any]]:
@@ -210,6 +255,20 @@ def _remove_empty_failed_db(db_path: Path) -> None:
     if db_path.exists() and db_path.stat().st_size == 0 and journal_path.exists():
         journal_path.unlink()
         db_path.unlink()
+
+
+def _ensure_figure_columns(connection: sqlite3.Connection) -> None:
+    columns = {
+        row["name"]
+        for row in connection.execute("PRAGMA table_info(figures)").fetchall()
+    }
+    if "figure_id" not in columns:
+        connection.execute("ALTER TABLE figures ADD COLUMN figure_id TEXT")
+    if "page" not in columns:
+        connection.execute("ALTER TABLE figures ADD COLUMN page INTEGER")
+    if "figure_type" not in columns:
+        connection.execute("ALTER TABLE figures ADD COLUMN figure_type TEXT NOT NULL DEFAULT 'other'")
+    connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_figures_figure_id_unique ON figures (figure_id)")
 
 
 def _from_json(value: str | None) -> Any:

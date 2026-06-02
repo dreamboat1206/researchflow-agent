@@ -7,10 +7,12 @@ from storage.sqlite_store import (
     init_db,
     insert_chunk,
     insert_figure,
+    insert_figure_record,
     insert_paper,
     list_papers,
     load_config,
 )
+from models.figure_record import FigureRecord, FigureType
 
 
 def test_init_db_creates_expected_tables() -> None:
@@ -55,9 +57,10 @@ def test_insert_and_query_paper_chunk_figure() -> None:
     figure_id = insert_figure(
         paper_id=paper_id,
         figure_index=1,
-        page_number=3,
+        page=3,
         caption="The Transformer model architecture.",
         image_path="data/figures/attention-figure-1.png",
+        figure_type="architecture",
         metadata={"kind": "architecture"},
         config_path=config_path,
     )
@@ -79,6 +82,33 @@ def test_insert_and_query_paper_chunk_figure() -> None:
     assert figure_id > 0
     assert chunk_count == 1
     assert figure_count == 1
+
+
+def test_insert_figure_record_writes_required_metadata() -> None:
+    config_path = _write_config()
+    db_path = init_db(config_path)
+    paper_id = insert_paper(title="ZoomDet", config_path=config_path)
+    record = FigureRecord(
+        paper_id=paper_id,
+        page=4,
+        figure_index=2,
+        image_path="data/figures/1_fig_4_2.png",
+        caption="ZoomDet pipeline.",
+        figure_type=FigureType.PIPELINE,
+    )
+
+    row_id = insert_figure_record(record, config_path=config_path)
+
+    with sqlite3.connect(db_path) as connection:
+        connection.row_factory = sqlite3.Row
+        row = connection.execute("SELECT * FROM figures WHERE id = ?", (row_id,)).fetchone()
+
+    assert row["figure_id"] == f"{paper_id}_fig_4_2"
+    assert row["page"] == 4
+    assert row["page_number"] == 4
+    assert row["caption"] == "ZoomDet pipeline."
+    assert row["image_path"] == "data/figures/1_fig_4_2.png"
+    assert row["figure_type"] == "pipeline"
 
 
 def test_load_config_applies_environment_overrides(monkeypatch) -> None:

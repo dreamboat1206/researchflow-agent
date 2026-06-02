@@ -23,9 +23,12 @@ CREATE TABLE IF NOT EXISTS chunks (
 
 CREATE TABLE IF NOT EXISTS figures (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    figure_id TEXT UNIQUE,
     paper_id INTEGER NOT NULL,
     figure_index INTEGER NOT NULL,
+    page INTEGER,
     page_number INTEGER,
+    figure_type TEXT NOT NULL DEFAULT 'other',
     caption TEXT,
     image_path TEXT,
     metadata TEXT,
@@ -43,5 +46,6 @@ CREATE TABLE IF NOT EXISTS traces (
 
 CREATE INDEX IF NOT EXISTS idx_chunks_paper_id ON chunks (paper_id);
 CREATE INDEX IF NOT EXISTS idx_figures_paper_id ON figures (paper_id);
+CREATE INDEX IF NOT EXISTS idx_figures_figure_id ON figures (figure_id);
 CREATE INDEX IF NOT EXISTS idx_traces_run_id ON traces (run_id);
 
