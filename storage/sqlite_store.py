@@ -299,6 +299,7 @@ def _apply_env_overrides(config: dict[str, Any]) -> None:
     _set_if_env(config, ("database", "path"), "DATABASE_PATH")
     _set_if_env(config, ("qdrant", "url"), "QDRANT_URL")
     _set_if_env(config, ("qdrant", "collection_name"), "QDRANT_COLLECTION")
+    _set_if_env(config, ("qdrant", "figures_collection_name"), "QDRANT_FIGURES_COLLECTION")
     _set_if_env(config, ("models", "embedding_model"), "EMBEDDING_MODEL")
     _set_bool_if_env(config, ("models", "embedding_local_files_only"), "EMBEDDING_LOCAL_FILES_ONLY")
     _set_if_env(config, ("models", "llm_model"), "LLM_MODEL")

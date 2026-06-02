@@ -10,6 +10,7 @@ qdrant:
   mode: http
   url: http://localhost:6333
   collection_name: papers_text
+  figures_collection_name: paper_figures_text
 
 models:
   embedding_model: sentence-transformers/all-MiniLM-L6-v2

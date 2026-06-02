@@ -58,11 +58,63 @@ class QdrantTextStore:
         return [_hit_to_result(hit) for hit in hits]
 
 
+class QdrantFigureTextStore(QdrantTextStore):
+    def __init__(
+        self,
+        collection_name: str | None = None,
+        embedding_model: TextEmbeddingModel | None = None,
+        client: Any | None = None,
+        config_path: str | Path = DEFAULT_CONFIG_PATH,
+    ):
+        super().__init__(
+            collection_name=collection_name or get_figures_collection_name(config_path),
+            embedding_model=embedding_model,
+            client=client,
+            config_path=config_path,
+        )
+
+    def upsert_figures_text(self, figures: list[dict[str, Any]]) -> int:
+        indexable_figures = [
+            figure for figure in figures if figure.get("figure_id") and _figure_text(figure)
+        ]
+        if not indexable_figures:
+            return 0
+
+        embeddings = self.embedding_model.encode_texts(
+            [_figure_text(figure) for figure in indexable_figures]
+        )
+        points = [
+            qmodels.PointStruct(
+                id=_point_id(f"figure:{figure['figure_id']}"),
+                vector=embedding,
+                payload=_figure_payload(figure),
+            )
+            for figure, embedding in zip(indexable_figures, embeddings, strict=True)
+        ]
+        self.client.upsert(collection_name=self.collection_name, points=points)
+        return len(points)
+
+    def search_figures_text(self, query: str, top_k: int = 5) -> list[dict[str, Any]]:
+        if not _collection_exists(self.client, self.collection_name):
+            return []
+        query_vector = self.embedding_model.encode_query(query)
+        hits = _search(self.client, self.collection_name, query_vector, top_k)
+        return [_hit_to_figure_result(hit) for hit in hits]
+
+
 def get_collection_name(config_path: str | Path = DEFAULT_CONFIG_PATH) -> str:
     config = load_config(config_path)
     collection_name = config.get("qdrant", {}).get("collection_name")
     if not collection_name:
         raise ValueError("Missing qdrant.collection_name in config.yaml")
+    return str(collection_name)
+
+
+def get_figures_collection_name(config_path: str | Path = DEFAULT_CONFIG_PATH) -> str:
+    config = load_config(config_path)
+    collection_name = config.get("qdrant", {}).get("figures_collection_name")
+    if not collection_name:
+        return "paper_figures_text"
     return str(collection_name)
 
 
@@ -129,6 +181,28 @@ def _chunk_payload(chunk: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _figure_text(figure: dict[str, Any]) -> str:
+    parts = [
+        str(figure.get("caption") or "").strip(),
+        str(figure.get("nearby_text") or "").strip(),
+    ]
+    return "\n".join(part for part in parts if part)
+
+
+def _figure_payload(figure: dict[str, Any]) -> dict[str, Any]:
+    text = _figure_text(figure)
+    return {
+        "figure_id": figure.get("figure_id"),
+        "paper_id": figure.get("paper_id"),
+        "page": figure.get("page") or figure.get("page_number"),
+        "image_path": figure.get("image_path"),
+        "caption": figure.get("caption"),
+        "nearby_text": figure.get("nearby_text"),
+        "figure_type": figure.get("figure_type"),
+        "text": text,
+    }
+
+
 def _search(client: Any, collection_name: str, query_vector: list[float], top_k: int) -> Any:
     if hasattr(client, "search"):
         return client.search(
@@ -153,6 +227,23 @@ def _hit_to_result(hit: Any) -> dict[str, Any]:
         "paper_id": payload.get("paper_id"),
         "chunk_id": payload.get("chunk_id"),
         "page": payload.get("page"),
+        "text": payload.get("text"),
+        "payload": payload,
+    }
+
+
+def _hit_to_figure_result(hit: Any) -> dict[str, Any]:
+    payload = dict(getattr(hit, "payload", None) or {})
+    return {
+        "id": str(getattr(hit, "id", "")),
+        "score": float(getattr(hit, "score", 0.0)),
+        "figure_id": payload.get("figure_id"),
+        "paper_id": payload.get("paper_id"),
+        "page": payload.get("page"),
+        "image_path": payload.get("image_path"),
+        "caption": payload.get("caption"),
+        "nearby_text": payload.get("nearby_text"),
+        "figure_type": payload.get("figure_type"),
         "text": payload.get("text"),
         "payload": payload,
     }

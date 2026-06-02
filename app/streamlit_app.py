@@ -71,8 +71,8 @@ st.caption("A minimal workspace for research document workflows.")
 
 api_base_url = _api_base_url()
 
-home_tab, search_tab, qa_tab, figures_tab = st.tabs(
-    ["Overview", "Paper Search", "Paper QA", "Figure Gallery"]
+home_tab, search_tab, figure_search_tab, qa_tab, figures_tab = st.tabs(
+    ["Overview", "Paper Search", "Figure Search", "Paper QA", "Figure Gallery"]
 )
 
 with home_tab:
@@ -110,6 +110,53 @@ with search_tab:
                         st.subheader(title)
                         st.caption(f"page: {page} | score: {_format_score(result.get('score'))}")
                         st.write(result.get("chunk_text") or "")
+
+with figure_search_tab:
+    with st.form("figure-search-form"):
+        figure_query = st.text_input(
+            "Figure search text",
+            placeholder="Find Transformer architecture figures",
+        )
+        figure_top_k = st.slider("Number of figures", min_value=1, max_value=20, value=5)
+        figure_submitted = st.form_submit_button("Search Figures")
+
+    if figure_submitted:
+        if not figure_query.strip():
+            st.warning("Please enter figure search text.")
+        else:
+            try:
+                response = httpx.post(
+                    f"{api_base_url}/search/figures",
+                    json={"query": figure_query, "top_k": figure_top_k},
+                    timeout=30,
+                )
+                response.raise_for_status()
+                results = response.json()["results"]
+            except httpx.HTTPError as exc:
+                st.error(f"Figure search request failed: {exc}")
+            else:
+                if not results:
+                    st.info("No relevant figures found.")
+                for result in results:
+                    with st.container(border=True):
+                        image_col, detail_col = st.columns([1, 2])
+                        image_path = _figure_image_path(result.get("image_path"))
+                        with image_col:
+                            if image_path and Path(image_path).exists():
+                                st.image(image_path, use_container_width=True)
+                            else:
+                                st.code(image_path or "No image path")
+                        with detail_col:
+                            st.subheader(result.get("figure_id") or "Figure")
+                            st.caption(
+                                f"paper_id: {result.get('paper_id') or '-'} | "
+                                f"page: {result.get('page') or '-'} | "
+                                f"type: {result.get('figure_type') or 'other'} | "
+                                f"score: {_format_score(result.get('score'))}"
+                            )
+                            st.write(result.get("caption") or "No caption matched yet.")
+                            with st.expander("Nearby text"):
+                                st.write(result.get("nearby_text") or "-")
 
 with qa_tab:
     with st.form("paper-qa-form"):

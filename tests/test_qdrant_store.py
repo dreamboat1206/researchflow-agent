@@ -6,10 +6,12 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from storage.qdrant_store import (
+    QdrantFigureTextStore,
     QdrantTextStore,
     _create_client,
     _ensure_no_proxy_for_local_qdrant,
     get_collection_name,
+    get_figures_collection_name,
 )
 
 
@@ -72,6 +74,19 @@ def test_get_collection_name_reads_config() -> None:
     )
 
     assert get_collection_name(config_path) == "papers_text"
+
+
+def test_get_figures_collection_name_reads_config() -> None:
+    test_dir = Path("data/test_qdrant_store")
+    test_dir.mkdir(parents=True, exist_ok=True)
+    config_path = test_dir / f"config-{uuid.uuid4().hex}.yaml"
+    config_path.write_text(
+        "qdrant:\n"
+        "  figures_collection_name: paper_figures_text\n",
+        encoding="utf-8",
+    )
+
+    assert get_figures_collection_name(config_path) == "paper_figures_text"
 
 
 def test_create_client_supports_local_qdrant_path() -> None:
@@ -179,3 +194,102 @@ def test_search_text_returns_top_k_chunks() -> None:
             },
         }
     ]
+
+
+def test_upsert_figures_text_embeds_caption_and_nearby_text() -> None:
+    client = FakeQdrantClient(collection_exists=True)
+    store = QdrantFigureTextStore(
+        collection_name="paper_figures_text",
+        embedding_model=FakeEmbeddingModel(),
+        client=client,
+    )
+
+    count = store.upsert_figures_text(
+        [
+            {
+                "figure_id": "7_fig_2_1",
+                "paper_id": 7,
+                "page": 2,
+                "image_path": "data/figures/7/7_fig_2_1.png",
+                "caption": "Figure 1: Transformer architecture.",
+                "nearby_text": "The encoder and decoder use attention blocks.",
+                "figure_type": "architecture",
+            }
+        ]
+    )
+
+    assert count == 1
+    point = client.upserted_points[0]
+    assert point.payload == {
+        "figure_id": "7_fig_2_1",
+        "paper_id": 7,
+        "page": 2,
+        "image_path": "data/figures/7/7_fig_2_1.png",
+        "caption": "Figure 1: Transformer architecture.",
+        "nearby_text": "The encoder and decoder use attention blocks.",
+        "figure_type": "architecture",
+        "text": "Figure 1: Transformer architecture.\nThe encoder and decoder use attention blocks.",
+    }
+
+
+def test_search_figures_text_returns_top_k_figures() -> None:
+    client = FakeQdrantClient(collection_exists=True)
+    store = QdrantFigureTextStore(
+        collection_name="paper_figures_text",
+        embedding_model=FakeEmbeddingModel(),
+        client=client,
+    )
+    client.search = lambda collection_name, query_vector, limit: [
+        SimpleNamespace(
+            id="figure-point-1",
+            score=0.88,
+            payload={
+                "figure_id": "7_fig_2_1",
+                "paper_id": 7,
+                "page": 2,
+                "image_path": "data/figures/7/7_fig_2_1.png",
+                "caption": "Figure 1: Transformer architecture.",
+                "nearby_text": "Attention blocks.",
+                "figure_type": "architecture",
+                "text": "Figure 1: Transformer architecture.\nAttention blocks.",
+            },
+        )
+    ]
+
+    results = store.search_figures_text("Transformer architecture", top_k=1)
+
+    assert results == [
+        {
+            "id": "figure-point-1",
+            "score": 0.88,
+            "figure_id": "7_fig_2_1",
+            "paper_id": 7,
+            "page": 2,
+            "image_path": "data/figures/7/7_fig_2_1.png",
+            "caption": "Figure 1: Transformer architecture.",
+            "nearby_text": "Attention blocks.",
+            "figure_type": "architecture",
+            "text": "Figure 1: Transformer architecture.\nAttention blocks.",
+            "payload": {
+                "figure_id": "7_fig_2_1",
+                "paper_id": 7,
+                "page": 2,
+                "image_path": "data/figures/7/7_fig_2_1.png",
+                "caption": "Figure 1: Transformer architecture.",
+                "nearby_text": "Attention blocks.",
+                "figure_type": "architecture",
+                "text": "Figure 1: Transformer architecture.\nAttention blocks.",
+            },
+        }
+    ]
+
+
+def test_search_figures_text_returns_empty_when_collection_missing() -> None:
+    client = FakeQdrantClient(collection_exists=False)
+    store = QdrantFigureTextStore(
+        collection_name="paper_figures_text",
+        embedding_model=FakeEmbeddingModel(),
+        client=client,
+    )
+
+    assert store.search_figures_text("Transformer architecture", top_k=3) == []
