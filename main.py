@@ -5,6 +5,7 @@ import sys
 from models.text_embedding import TextEmbeddingModel
 from storage.qdrant_store import QdrantTextStore
 from storage.sqlite_store import init_db, insert_chunk, insert_paper
+from tools.figure_extractor import extract_figures_from_pdf
 from tools.pdf_parser import parse_pdf
 from tools.text_splitter import split_pages_to_chunks
 
@@ -42,6 +43,20 @@ def main() -> None:
     ingest_pdf_parser.add_argument("--chunk-size", type=int, default=1000)
     ingest_pdf_parser.add_argument("--overlap", type=int, default=100)
 
+    extract_figures_parser = subparsers.add_parser(
+        "extract-figures",
+        help="Extract embedded PDF images and store figure metadata.",
+    )
+    extract_figures_parser.add_argument("file_path", help="Path to the PDF file.")
+    extract_figures_parser.add_argument("paper_id", type=int, help="SQLite paper id.")
+    extract_figures_parser.add_argument(
+        "--config",
+        default="config.yaml",
+        help="Path to the project configuration file.",
+    )
+    extract_figures_parser.add_argument("--min-width", type=int, default=80)
+    extract_figures_parser.add_argument("--min-height", type=int, default=80)
+
     parser.add_argument(
         "--version",
         action="version",
@@ -67,6 +82,18 @@ def main() -> None:
             overlap=args.overlap,
         )
         print(json.dumps(result, ensure_ascii=False, indent=2))
+        return
+
+    if args.command == "extract-figures":
+        figures = extract_figures_from_pdf(
+            args.file_path,
+            paper_id=args.paper_id,
+            config_path=args.config,
+            min_width=args.min_width,
+            min_height=args.min_height,
+            write_to_sqlite=True,
+        )
+        print(json.dumps({"figures": figures, "count": len(figures)}, ensure_ascii=False, indent=2))
         return
 
     parser.print_help()
