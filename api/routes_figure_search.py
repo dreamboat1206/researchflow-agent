@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from typing import Any
 
 from agents.figure_retrieval_agent import FigureRetrievalAgent
+from graph.figure_search_graph import invoke_figure_search
 
 
 router = APIRouter(prefix="/search", tags=["search"])
@@ -60,11 +61,13 @@ def search_figures(
     request: FigureSearchRequest,
     figure_retrieval_agent: FigureRetrievalAgent = Depends(get_figure_retrieval_agent),
 ) -> FigureSearchResponse:
-    results = figure_retrieval_agent.search_figures(
+    graph_state = invoke_figure_search(
         request.query,
         top_k=request.top_k,
-        mode=request.mode,
+        mode=request.mode,  # type: ignore[arg-type]
+        figure_retrieval_agent=figure_retrieval_agent,
     )
+    results = graph_state.get("retrieved_figures", [])
     return FigureSearchResponse(query=request.query, top_k=request.top_k, results=results)
 
 
