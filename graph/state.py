@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Literal, TypedDict
 
 
+
 WorkflowName = Literal["paper_ingest", "paper_qa", "figure_search", "figure_qa"]
 FigureSearchMode = Literal["text", "image", "fusion"]
 

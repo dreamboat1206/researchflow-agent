@@ -14,6 +14,7 @@ from graph.state import (
 )
 
 
+
 def test_research_state_defines_shared_workflow_fields() -> None:
     hints = get_type_hints(ResearchState)
 
