@@ -84,6 +84,8 @@ class ResearchState(TypedDict, total=False):
     context_chunks: list[RetrievedChunk]
 
     # Figure search / QA state.
+    figure_id: str
+    page: int
     figure_search_mode: FigureSearchMode
     figure_query: str
     selected_figure: RetrievedFigure

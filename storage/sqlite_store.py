@@ -256,6 +256,30 @@ def list_figures(
     return [_figure_from_row(row) for row in rows]
 
 
+def get_figure_by_id(
+    figure_id: str,
+    config_path: str | Path = DEFAULT_CONFIG_PATH,
+) -> dict[str, Any] | None:
+    db_path = get_db_path(config_path)
+    with connect(db_path) as connection:
+        _ensure_figure_columns(connection)
+        row = connection.execute(
+            """
+            SELECT figures.id, figures.figure_id, figures.paper_id, papers.title AS paper_title,
+                   figures.figure_index, figures.page, figures.page_number, figures.figure_type,
+                   figures.caption, figures.nearby_text, figures.image_path, figures.metadata,
+                   figures.created_at
+            FROM figures
+            LEFT JOIN papers ON papers.id = figures.paper_id
+            WHERE figures.figure_id = ?
+            """,
+            (figure_id,),
+        ).fetchone()
+    if row is None:
+        return None
+    return _figure_from_row(row)
+
+
 def list_papers(config_path: str | Path = DEFAULT_CONFIG_PATH) -> list[dict[str, Any]]:
     db_path = get_db_path(config_path)
 
