@@ -3,7 +3,8 @@ import json
 import sys
 
 from models.text_embedding import TextEmbeddingModel
-from storage.qdrant_store import QdrantFigureTextStore, QdrantTextStore
+from models.image_embedding import ImageEmbeddingModel
+from storage.qdrant_store import QdrantFigureImageStore, QdrantFigureTextStore, QdrantTextStore
 from storage.sqlite_store import init_db, insert_chunk, insert_paper
 from tools.figure_extractor import extract_figures_from_pdf
 from tools.pdf_parser import parse_pdf
@@ -97,13 +98,22 @@ def main() -> None:
         figure_store = QdrantFigureTextStore(embedding_model=embedding_model, config_path=args.config)
         figure_store.create_collection()
         vector_count = figure_store.upsert_figures_text(figures)
+        image_embedding_model = ImageEmbeddingModel(config_path=args.config)
+        figure_image_store = QdrantFigureImageStore(
+            embedding_model=image_embedding_model,
+            config_path=args.config,
+        )
+        figure_image_store.create_collection()
+        image_vector_count = figure_image_store.upsert_figures_image(figures)
         print(
             json.dumps(
                 {
                     "figures": figures,
                     "count": len(figures),
-                    "vectors": vector_count,
-                    "collection": figure_store.collection_name,
+                    "text_vectors": vector_count,
+                    "text_collection": figure_store.collection_name,
+                    "image_vectors": image_vector_count,
+                    "image_collection": figure_image_store.collection_name,
                 },
                 ensure_ascii=False,
                 indent=2,

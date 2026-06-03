@@ -6,12 +6,14 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from storage.qdrant_store import (
+    QdrantFigureImageStore,
     QdrantFigureTextStore,
     QdrantTextStore,
     _create_client,
     _ensure_no_proxy_for_local_qdrant,
     get_collection_name,
     get_figures_collection_name,
+    get_figures_image_collection_name,
 )
 
 
@@ -24,6 +26,17 @@ class FakeEmbeddingModel:
 
     def encode_query(self, query: str) -> list[float]:
         return [float(len(query)), 0.5, 1.0]
+
+
+class FakeImageEmbeddingModel:
+    def embedding_dimension(self) -> int:
+        return 4
+
+    def encode_image(self, image_path: Path) -> list[float]:
+        return [float(len(str(image_path))), 1.0, 0.5, 0.25]
+
+    def encode_text(self, text: str) -> list[float]:
+        return [float(len(text)), 1.0, 0.5, 0.25]
 
 
 class FakeQdrantClient:
@@ -87,6 +100,19 @@ def test_get_figures_collection_name_reads_config() -> None:
     )
 
     assert get_figures_collection_name(config_path) == "paper_figures_text"
+
+
+def test_get_figures_image_collection_name_reads_config() -> None:
+    test_dir = Path("data/test_qdrant_store")
+    test_dir.mkdir(parents=True, exist_ok=True)
+    config_path = test_dir / f"config-{uuid.uuid4().hex}.yaml"
+    config_path.write_text(
+        "qdrant:\n"
+        "  figures_image_collection_name: paper_figures_image\n",
+        encoding="utf-8",
+    )
+
+    assert get_figures_image_collection_name(config_path) == "paper_figures_image"
 
 
 def test_create_client_supports_local_qdrant_path() -> None:
@@ -293,3 +319,85 @@ def test_search_figures_text_returns_empty_when_collection_missing() -> None:
     )
 
     assert store.search_figures_text("Transformer architecture", top_k=3) == []
+
+
+def test_upsert_figures_image_embeds_existing_image(tmp_path: Path) -> None:
+    image_path = tmp_path / "figure.png"
+    image_path.write_bytes(b"fake-image")
+    client = FakeQdrantClient(collection_exists=True)
+    store = QdrantFigureImageStore(
+        collection_name="paper_figures_image",
+        embedding_model=FakeImageEmbeddingModel(),
+        client=client,
+    )
+
+    count = store.upsert_figures_image(
+        [
+            {
+                "figure_id": "7_fig_2_1",
+                "paper_id": 7,
+                "page": 2,
+                "image_path": str(image_path),
+                "caption": "Figure 1: Transformer architecture.",
+                "figure_type": "architecture",
+            }
+        ]
+    )
+
+    assert count == 1
+    point = client.upserted_points[0]
+    assert point.vector == [float(len(str(image_path))), 1.0, 0.5, 0.25]
+    assert point.payload == {
+        "figure_id": "7_fig_2_1",
+        "paper_id": 7,
+        "page": 2,
+        "image_path": str(image_path),
+        "caption": "Figure 1: Transformer architecture.",
+        "figure_type": "architecture",
+    }
+
+
+def test_search_figures_by_image_text_returns_top_k_figures() -> None:
+    client = FakeQdrantClient(collection_exists=True)
+    store = QdrantFigureImageStore(
+        collection_name="paper_figures_image",
+        embedding_model=FakeImageEmbeddingModel(),
+        client=client,
+    )
+    client.search = lambda collection_name, query_vector, limit: [
+        SimpleNamespace(
+            id="image-point-1",
+            score=0.87,
+            payload={
+                "figure_id": "7_fig_2_1",
+                "paper_id": 7,
+                "page": 2,
+                "image_path": "data/figures/7/7_fig_2_1.png",
+                "caption": "Figure 1: Transformer architecture.",
+                "figure_type": "architecture",
+            },
+        )
+    ]
+
+    results = store.search_figures_by_image_text("Transformer architecture", top_k=1)
+
+    assert results == [
+        {
+            "id": "image-point-1",
+            "score": 0.87,
+            "figure_id": "7_fig_2_1",
+            "paper_id": 7,
+            "page": 2,
+            "image_path": "data/figures/7/7_fig_2_1.png",
+            "caption": "Figure 1: Transformer architecture.",
+            "figure_type": "architecture",
+            "payload": {
+                "figure_id": "7_fig_2_1",
+                "paper_id": 7,
+                "page": 2,
+                "image_path": "data/figures/7/7_fig_2_1.png",
+                "caption": "Figure 1: Transformer architecture.",
+                "figure_type": "architecture",
+            },
+        }
+    ]

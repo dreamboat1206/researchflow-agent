@@ -11,10 +11,13 @@ qdrant:
   url: http://localhost:6333
   collection_name: papers_text
   figures_collection_name: paper_figures_text
+  figures_image_collection_name: paper_figures_image
 
 models:
   embedding_model: sentence-transformers/all-MiniLM-L6-v2
   embedding_local_files_only: true
+  image_embedding_model: ViT-B-32
+  image_embedding_pretrained: laion2b_s34b_b79k
   llm_model: gpt-4.1-mini
 
 llm:

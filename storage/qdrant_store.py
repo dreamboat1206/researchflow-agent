@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as qmodels
 
+from models.image_embedding import ImageEmbeddingModel
 from models.text_embedding import TextEmbeddingModel
 from storage.sqlite_store import DEFAULT_CONFIG_PATH, load_config
 
@@ -102,6 +103,60 @@ class QdrantFigureTextStore(QdrantTextStore):
         return [_hit_to_figure_result(hit) for hit in hits]
 
 
+class QdrantFigureImageStore:
+    def __init__(
+        self,
+        collection_name: str | None = None,
+        embedding_model: ImageEmbeddingModel | None = None,
+        client: Any | None = None,
+        config_path: str | Path = DEFAULT_CONFIG_PATH,
+    ):
+        self.config_path = config_path
+        self.collection_name = collection_name or get_figures_image_collection_name(config_path)
+        self.embedding_model = embedding_model or ImageEmbeddingModel(config_path=config_path)
+        self.client = client or _create_client(config_path)
+
+    def create_collection(self, vector_size: int | None = None) -> None:
+        size = vector_size or self.embedding_model.embedding_dimension()
+        if _collection_exists(self.client, self.collection_name):
+            return
+        self.client.create_collection(
+            collection_name=self.collection_name,
+            vectors_config=qmodels.VectorParams(size=size, distance=qmodels.Distance.COSINE),
+        )
+
+    def upsert_figures_image(self, figures: list[dict[str, Any]]) -> int:
+        indexable_figures = [
+            figure for figure in figures if figure.get("figure_id") and figure.get("image_path")
+        ]
+        if not indexable_figures:
+            return 0
+
+        points = []
+        for figure in indexable_figures:
+            image_path = _resolve_stored_path(self.config_path, str(figure["image_path"]))
+            if not image_path.exists():
+                continue
+            points.append(
+                qmodels.PointStruct(
+                    id=_point_id(f"figure-image:{figure['figure_id']}"),
+                    vector=self.embedding_model.encode_image(image_path),
+                    payload=_figure_image_payload(figure),
+                )
+            )
+        if not points:
+            return 0
+        self.client.upsert(collection_name=self.collection_name, points=points)
+        return len(points)
+
+    def search_figures_by_image_text(self, query: str, top_k: int = 5) -> list[dict[str, Any]]:
+        if not _collection_exists(self.client, self.collection_name):
+            return []
+        query_vector = self.embedding_model.encode_text(query)
+        hits = _search(self.client, self.collection_name, query_vector, top_k)
+        return [_hit_to_figure_image_result(hit) for hit in hits]
+
+
 def get_collection_name(config_path: str | Path = DEFAULT_CONFIG_PATH) -> str:
     config = load_config(config_path)
     collection_name = config.get("qdrant", {}).get("collection_name")
@@ -115,6 +170,14 @@ def get_figures_collection_name(config_path: str | Path = DEFAULT_CONFIG_PATH) -
     collection_name = config.get("qdrant", {}).get("figures_collection_name")
     if not collection_name:
         return "paper_figures_text"
+    return str(collection_name)
+
+
+def get_figures_image_collection_name(config_path: str | Path = DEFAULT_CONFIG_PATH) -> str:
+    config = load_config(config_path)
+    collection_name = config.get("qdrant", {}).get("figures_image_collection_name")
+    if not collection_name:
+        return "paper_figures_image"
     return str(collection_name)
 
 
@@ -203,6 +266,26 @@ def _figure_payload(figure: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _figure_image_payload(figure: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "figure_id": figure.get("figure_id"),
+        "paper_id": figure.get("paper_id"),
+        "page": figure.get("page") or figure.get("page_number"),
+        "image_path": figure.get("image_path"),
+        "caption": figure.get("caption"),
+        "figure_type": figure.get("figure_type"),
+    }
+
+
+def _resolve_stored_path(config_path: str | Path, stored_path: str) -> Path:
+    path = Path(stored_path)
+    if path.exists():
+        return path
+    if path.is_absolute():
+        return path
+    return Path(config_path).resolve().parent / path
+
+
 def _search(client: Any, collection_name: str, query_vector: list[float], top_k: int) -> Any:
     if hasattr(client, "search"):
         return client.search(
@@ -245,5 +328,20 @@ def _hit_to_figure_result(hit: Any) -> dict[str, Any]:
         "nearby_text": payload.get("nearby_text"),
         "figure_type": payload.get("figure_type"),
         "text": payload.get("text"),
+        "payload": payload,
+    }
+
+
+def _hit_to_figure_image_result(hit: Any) -> dict[str, Any]:
+    payload = dict(getattr(hit, "payload", None) or {})
+    return {
+        "id": str(getattr(hit, "id", "")),
+        "score": float(getattr(hit, "score", 0.0)),
+        "figure_id": payload.get("figure_id"),
+        "paper_id": payload.get("paper_id"),
+        "page": payload.get("page"),
+        "image_path": payload.get("image_path"),
+        "caption": payload.get("caption"),
+        "figure_type": payload.get("figure_type"),
         "payload": payload,
     }

@@ -25,10 +25,26 @@ class FigureSearchResult(BaseModel):
     score: float | None = None
 
 
+class FigureImageSearchResult(BaseModel):
+    figure_id: str | None = None
+    paper_id: int | str | None = None
+    page: int | None = None
+    image_path: str | None = None
+    caption: str | None = None
+    figure_type: str | None = None
+    score: float | None = None
+
+
 class FigureSearchResponse(BaseModel):
     query: str
     top_k: int
     results: list[FigureSearchResult]
+
+
+class FigureImageSearchResponse(BaseModel):
+    query: str
+    top_k: int
+    results: list[FigureImageSearchResult]
 
 
 def get_figure_retrieval_agent() -> FigureRetrievalAgent:
@@ -42,3 +58,12 @@ def search_figures(
 ) -> FigureSearchResponse:
     results = figure_retrieval_agent.search_figures_by_text(request.query, top_k=request.top_k)
     return FigureSearchResponse(query=request.query, top_k=request.top_k, results=results)
+
+
+@router.post("/figures/image-text", response_model=FigureImageSearchResponse)
+def search_figures_by_image_text(
+    request: FigureSearchRequest,
+    figure_retrieval_agent: FigureRetrievalAgent = Depends(get_figure_retrieval_agent),
+) -> FigureImageSearchResponse:
+    results = figure_retrieval_agent.search_figures_by_image_text(request.query, top_k=request.top_k)
+    return FigureImageSearchResponse(query=request.query, top_k=request.top_k, results=results)

@@ -113,6 +113,10 @@ with search_tab:
 
 with figure_search_tab:
     with st.form("figure-search-form"):
+        figure_search_mode = st.selectbox(
+            "Search mode",
+            ["Caption + nearby text", "Image embedding"],
+        )
         figure_query = st.text_input(
             "Figure search text",
             placeholder="Find Transformer architecture figures",
@@ -124,9 +128,14 @@ with figure_search_tab:
         if not figure_query.strip():
             st.warning("Please enter figure search text.")
         else:
+            endpoint = (
+                "/search/figures/image-text"
+                if figure_search_mode == "Image embedding"
+                else "/search/figures"
+            )
             try:
                 response = httpx.post(
-                    f"{api_base_url}/search/figures",
+                    f"{api_base_url}{endpoint}",
                     json={"query": figure_query, "top_k": figure_top_k},
                     timeout=30,
                 )

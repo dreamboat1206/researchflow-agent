@@ -100,3 +100,5 @@ __pycache__/
 *.bat text eol=crlf
 *.ps1 text eol=crlf
 "@ | Set-Content .gitattributes -Encoding UTF8
+
+data/model_cache/
