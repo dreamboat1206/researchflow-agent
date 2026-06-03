@@ -321,8 +321,10 @@ def test_search_figures_text_returns_empty_when_collection_missing() -> None:
     assert store.search_figures_text("Transformer architecture", top_k=3) == []
 
 
-def test_upsert_figures_image_embeds_existing_image(tmp_path: Path) -> None:
-    image_path = tmp_path / "figure.png"
+def test_upsert_figures_image_embeds_existing_image() -> None:
+    test_dir = Path("data/test_qdrant_store")
+    test_dir.mkdir(parents=True, exist_ok=True)
+    image_path = test_dir / f"figure-{uuid.uuid4().hex}.png"
     image_path.write_bytes(b"fake-image")
     client = FakeQdrantClient(collection_exists=True)
     store = QdrantFigureImageStore(

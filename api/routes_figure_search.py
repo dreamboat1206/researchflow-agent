@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
+from typing import Any
 
 from agents.figure_retrieval_agent import FigureRetrievalAgent
 
@@ -12,6 +13,7 @@ router = APIRouter(prefix="/search", tags=["search"])
 class FigureSearchRequest(BaseModel):
     query: str = Field(..., min_length=1)
     top_k: int = Field(default=5, ge=1, le=20)
+    mode: str = Field(default="text")
 
 
 class FigureSearchResult(BaseModel):
@@ -23,6 +25,8 @@ class FigureSearchResult(BaseModel):
     nearby_text: str | None = None
     figure_type: str | None = None
     score: float | None = None
+    final_score: float | None = None
+    score_breakdown: dict[str, Any] | None = None
 
 
 class FigureImageSearchResult(BaseModel):
@@ -51,12 +55,16 @@ def get_figure_retrieval_agent() -> FigureRetrievalAgent:
     return FigureRetrievalAgent()
 
 
-@router.post("/figures", response_model=FigureSearchResponse)
+@router.post("/figures", response_model=FigureSearchResponse, response_model_exclude_none=True)
 def search_figures(
     request: FigureSearchRequest,
     figure_retrieval_agent: FigureRetrievalAgent = Depends(get_figure_retrieval_agent),
 ) -> FigureSearchResponse:
-    results = figure_retrieval_agent.search_figures_by_text(request.query, top_k=request.top_k)
+    results = figure_retrieval_agent.search_figures(
+        request.query,
+        top_k=request.top_k,
+        mode=request.mode,
+    )
     return FigureSearchResponse(query=request.query, top_k=request.top_k, results=results)
 
 

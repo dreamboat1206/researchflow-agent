@@ -115,7 +115,7 @@ with figure_search_tab:
     with st.form("figure-search-form"):
         figure_search_mode = st.selectbox(
             "Search mode",
-            ["Caption + nearby text", "Image embedding"],
+            ["Fusion", "Caption + nearby text", "Image embedding"],
         )
         figure_query = st.text_input(
             "Figure search text",
@@ -128,15 +128,14 @@ with figure_search_tab:
         if not figure_query.strip():
             st.warning("Please enter figure search text.")
         else:
-            endpoint = (
-                "/search/figures/image-text"
-                if figure_search_mode == "Image embedding"
-                else "/search/figures"
-            )
+            endpoint = "/search/figures/image-text" if figure_search_mode == "Image embedding" else "/search/figures"
+            payload = {"query": figure_query, "top_k": figure_top_k}
+            if figure_search_mode == "Fusion":
+                payload["mode"] = "fusion"
             try:
                 response = httpx.post(
                     f"{api_base_url}{endpoint}",
-                    json={"query": figure_query, "top_k": figure_top_k},
+                    json=payload,
                     timeout=30,
                 )
                 response.raise_for_status()
@@ -161,9 +160,18 @@ with figure_search_tab:
                                 f"paper_id: {result.get('paper_id') or '-'} | "
                                 f"page: {result.get('page') or '-'} | "
                                 f"type: {result.get('figure_type') or 'other'} | "
-                                f"score: {_format_score(result.get('score'))}"
+                                f"score: {_format_score(result.get('final_score') or result.get('score'))}"
                             )
                             st.write(result.get("caption") or "No caption matched yet.")
+                            if result.get("score_breakdown"):
+                                scores = result["score_breakdown"]
+                                st.caption(
+                                    "caption: "
+                                    f"{_format_score(scores.get('caption_text_score'))} | "
+                                    f"image: {_format_score(scores.get('image_score'))} | "
+                                    f"nearby: {_format_score(scores.get('nearby_text_score'))} | "
+                                    f"final: {_format_score(result.get('final_score'))}"
+                                )
                             with st.expander("Nearby text"):
                                 st.write(result.get("nearby_text") or "-")
 
