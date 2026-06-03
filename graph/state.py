@@ -52,7 +52,10 @@ class ResearchState(TypedDict, total=False):
     workflow: WorkflowName
     run_id: str
     user_query: str
+    task_type: str
+    need_multimodal: bool
     answer: str
+    final_answer: str
     error: str | None
     messages: list[dict[str, Any]]
     trace: list[dict[str, Any]]

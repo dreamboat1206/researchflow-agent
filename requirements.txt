@@ -11,3 +11,4 @@ loguru
 PyYAML
 Pillow
 open_clip_torch
+langgraph
