@@ -14,6 +14,7 @@ from agents.retrieval_agent import RetrievalAgent
 from agents.router_agent import RouterAgent
 from graph.state import ResearchState, create_initial_state
 from models.llm_client import LLMClient
+from observability.trace_logger import TraceLogger
 from storage.sqlite_store import DEFAULT_CONFIG_PATH
 
 
@@ -139,6 +140,7 @@ def invoke_paper_qa(
     retrieval_agent: RetrievalAgent | None = None,
     llm_client: LLMClient | None = None,
     evaluator_agent: EvaluatorAgent | None = None,
+    trace_logger: TraceLogger | None = None,
     config_path: str | Path = DEFAULT_CONFIG_PATH,
 ) -> ResearchState:
     if router_agent is None:
@@ -156,7 +158,29 @@ def invoke_paper_qa(
     )
     initial_state = create_initial_state("paper_qa", user_query=query, top_k=top_k)
     initial_state["question"] = query
-    return graph.invoke(initial_state)
+    logger = trace_logger or TraceLogger(config_path=config_path)
+    trace_id, started_at = logger.start_trace()
+    initial_state["run_id"] = trace_id
+    try:
+        result = graph.invoke(initial_state)
+        result["run_id"] = trace_id
+        logger.log_graph_result(
+            trace_id=trace_id,
+            started_at=started_at,
+            task_type="paper_qa",
+            query=query,
+            state=result,
+        )
+        return result
+    except Exception as error:
+        logger.log_exception(
+            trace_id=trace_id,
+            started_at=started_at,
+            task_type="paper_qa",
+            query=query,
+            error=error,
+        )
+        raise
 
 
 class _SequentialGraph:

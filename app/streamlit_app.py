@@ -1,11 +1,18 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 from typing import Any
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 import httpx
 import streamlit as st
+
+from observability.trace_logger import list_recent_traces
 
 
 def _api_base_url() -> str:
@@ -71,8 +78,8 @@ st.caption("A minimal workspace for research document workflows.")
 
 api_base_url = _api_base_url()
 
-home_tab, search_tab, figure_search_tab, qa_tab, figures_tab = st.tabs(
-    ["Overview", "Paper Search", "Figure Search", "Paper QA", "Figure Gallery"]
+home_tab, search_tab, figure_search_tab, qa_tab, figures_tab, trace_tab = st.tabs(
+    ["Overview", "Paper Search", "Figure Search", "Paper QA", "Figure Gallery", "Trace Viewer"]
 )
 
 with home_tab:
@@ -250,3 +257,33 @@ with figures_tab:
                             st.write(f"page: {figure.get('page') or '-'}")
                             st.write(f"caption: {figure.get('caption') or '-'}")
                             st.write(f"nearby_text: {figure.get('nearby_text') or '-'}")
+
+with trace_tab:
+    st.subheader("Trace Viewer")
+    trace_limit = st.slider("Recent traces", min_value=5, max_value=100, value=20, step=5)
+    if st.button("Refresh traces"):
+        st.rerun()
+
+    try:
+        traces = list_recent_traces(limit=trace_limit)
+    except Exception as exc:
+        st.error(f"Failed to load traces: {exc}")
+    else:
+        if not traces:
+            st.info("No traces recorded yet. Run a QA or search request first.")
+        for trace in traces:
+            success = "success" if trace.get("success") else "failed"
+            title = (
+                f"{trace.get('task_type') or 'unknown'} | {success} | "
+                f"{trace.get('latency_ms')} ms"
+            )
+            with st.expander(title):
+                st.caption(f"trace_id: {trace.get('trace_id')}")
+                st.write(f"query: {trace.get('query') or '-'}")
+                if trace.get("error_message"):
+                    st.error(trace["error_message"])
+                retrieved_items = trace.get("retrieved_items") or []
+                st.write(f"retrieved_items: {len(retrieved_items)}")
+                if trace.get("final_answer"):
+                    st.write(trace["final_answer"])
+                st.json(trace)

@@ -6,6 +6,7 @@ from typing import Any, Callable
 from agents.figure_retrieval_agent import FigureRetrievalAgent
 from agents.router_agent import RouterAgent
 from graph.state import FigureSearchMode, ResearchState, create_initial_state
+from observability.trace_logger import TraceLogger
 from storage.sqlite_store import DEFAULT_CONFIG_PATH
 
 
@@ -100,6 +101,7 @@ def invoke_figure_search(
     mode: FigureSearchMode = "fusion",
     router_agent: RouterAgent | None = None,
     figure_retrieval_agent: FigureRetrievalAgent | None = None,
+    trace_logger: TraceLogger | None = None,
     config_path: str | Path = DEFAULT_CONFIG_PATH,
 ) -> ResearchState:
     if router_agent is None:
@@ -114,7 +116,29 @@ def invoke_figure_search(
     initial_state = create_initial_state("figure_search", user_query=query, top_k=top_k)
     initial_state["figure_query"] = query
     initial_state["figure_search_mode"] = mode
-    return graph.invoke(initial_state)
+    logger = trace_logger or TraceLogger(config_path=config_path)
+    trace_id, started_at = logger.start_trace()
+    initial_state["run_id"] = trace_id
+    try:
+        result = graph.invoke(initial_state)
+        result["run_id"] = trace_id
+        logger.log_graph_result(
+            trace_id=trace_id,
+            started_at=started_at,
+            task_type="figure_search",
+            query=query,
+            state=result,
+        )
+        return result
+    except Exception as error:
+        logger.log_exception(
+            trace_id=trace_id,
+            started_at=started_at,
+            task_type="figure_search",
+            query=query,
+            error=error,
+        )
+        raise
 
 
 class _SequentialGraph:

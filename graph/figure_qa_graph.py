@@ -8,6 +8,7 @@ from agents.figure_retrieval_agent import FigureRetrievalAgent
 from agents.multimodal_qa_agent import FIGURE_NOT_FOUND_ERROR, MultimodalQAAgent
 from agents.router_agent import RouterAgent
 from graph.state import ResearchState, create_initial_state
+from observability.trace_logger import TraceLogger
 from storage.sqlite_store import DEFAULT_CONFIG_PATH, get_figure_by_id
 
 
@@ -169,6 +170,7 @@ def invoke_figure_qa(
     figure_retrieval_agent: FigureRetrievalAgent | None = None,
     multimodal_qa_agent: MultimodalQAAgent | None = None,
     evaluator_agent: EvaluatorAgent | None = None,
+    trace_logger: TraceLogger | None = None,
     config_path: str | Path = DEFAULT_CONFIG_PATH,
 ) -> ResearchState:
     graph = build_figure_qa_graph(
@@ -185,7 +187,29 @@ def invoke_figure_qa(
     if query:
         initial_state["figure_query"] = query
     initial_state["figure_search_mode"] = "fusion"
-    return graph.invoke(initial_state)
+    logger = trace_logger or TraceLogger(config_path=config_path)
+    trace_id, started_at = logger.start_trace()
+    initial_state["run_id"] = trace_id
+    try:
+        result = graph.invoke(initial_state)
+        result["run_id"] = trace_id
+        logger.log_graph_result(
+            trace_id=trace_id,
+            started_at=started_at,
+            task_type="figure_qa",
+            query=question,
+            state=result,
+        )
+        return result
+    except Exception as error:
+        logger.log_exception(
+            trace_id=trace_id,
+            started_at=started_at,
+            task_type="figure_qa",
+            query=question,
+            error=error,
+        )
+        raise
 
 
 class _SequentialGraph:
