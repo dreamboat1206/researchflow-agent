@@ -128,8 +128,11 @@ def test_build_figure_qa_graph_invokes_all_nodes_with_query_search() -> None:
         "router_node",
         "figure_lookup_node",
         "answer_generation_node",
+        "evaluation_node",
         "format_output_node",
     ]
+    assert result["evaluations"][-1]["metric_name"] == "answer_citation_support"
+    assert result["evaluations"][-1]["passed"] is True
 
 
 def test_invoke_figure_qa_returns_answer_for_figure_id() -> None:

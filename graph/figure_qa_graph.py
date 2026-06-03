@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable
 
+from agents.evaluator_agent import EvaluatorAgent
 from agents.figure_retrieval_agent import FigureRetrievalAgent
 from agents.multimodal_qa_agent import FIGURE_NOT_FOUND_ERROR, MultimodalQAAgent
 from agents.router_agent import RouterAgent
@@ -88,6 +89,18 @@ def answer_generation_node(
     return next_state
 
 
+def evaluation_node(
+    state: ResearchState,
+    evaluator_agent: EvaluatorAgent | None = None,
+) -> ResearchState:
+    next_state = _copy_state(state)
+    evaluator = evaluator_agent or EvaluatorAgent()
+    evaluation = evaluator.evaluate_state(next_state)
+    next_state["evaluations"] = list(next_state.get("evaluations") or []) + [evaluation]
+    _append_trace(next_state, "evaluation_node", {"passed": evaluation["passed"]})
+    return next_state
+
+
 def format_output_node(state: ResearchState) -> ResearchState:
     next_state = _copy_state(state)
     selected = dict(next_state.get("selected_figure") or {})
@@ -113,6 +126,7 @@ def build_figure_qa_graph(
     router_agent: RouterAgent | None = None,
     figure_retrieval_agent: FigureRetrievalAgent | None = None,
     multimodal_qa_agent: MultimodalQAAgent | None = None,
+    evaluator_agent: EvaluatorAgent | None = None,
     config_path: str | Path = DEFAULT_CONFIG_PATH,
 ) -> Any:
     nodes = [
@@ -123,6 +137,7 @@ def build_figure_qa_graph(
             config_path=config_path,
         ),
         lambda state: answer_generation_node(state, multimodal_qa_agent=multimodal_qa_agent),
+        lambda state: evaluation_node(state, evaluator_agent=evaluator_agent),
         format_output_node,
     ]
     try:
@@ -134,11 +149,13 @@ def build_figure_qa_graph(
     graph.add_node("router_node", nodes[0])
     graph.add_node("figure_lookup_node", nodes[1])
     graph.add_node("answer_generation_node", nodes[2])
-    graph.add_node("format_output_node", nodes[3])
+    graph.add_node("evaluation_node", nodes[3])
+    graph.add_node("format_output_node", nodes[4])
     graph.set_entry_point("router_node")
     graph.add_edge("router_node", "figure_lookup_node")
     graph.add_edge("figure_lookup_node", "answer_generation_node")
-    graph.add_edge("answer_generation_node", "format_output_node")
+    graph.add_edge("answer_generation_node", "evaluation_node")
+    graph.add_edge("evaluation_node", "format_output_node")
     graph.add_edge("format_output_node", END)
     return graph.compile()
 
@@ -151,12 +168,14 @@ def invoke_figure_qa(
     router_agent: RouterAgent | None = None,
     figure_retrieval_agent: FigureRetrievalAgent | None = None,
     multimodal_qa_agent: MultimodalQAAgent | None = None,
+    evaluator_agent: EvaluatorAgent | None = None,
     config_path: str | Path = DEFAULT_CONFIG_PATH,
 ) -> ResearchState:
     graph = build_figure_qa_graph(
         router_agent=router_agent,
         figure_retrieval_agent=figure_retrieval_agent,
         multimodal_qa_agent=multimodal_qa_agent,
+        evaluator_agent=evaluator_agent,
         config_path=config_path,
     )
     initial_state = create_initial_state("figure_qa", user_query=question, top_k=top_k)

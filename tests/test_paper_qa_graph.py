@@ -106,10 +106,11 @@ def test_evaluation_node_writes_citation_coverage() -> None:
     state = create_initial_state("paper_qa", user_query="What does ZoomDet do?")
     state["final_answer"] = "Answer [1]"
     state["citations"] = [{"title": "ZoomDet", "page": 2, "chunk_id": "1-p2-c1"}]
+    state["retrieved_chunks"] = [{"title": "ZoomDet", "page": 2, "chunk_id": "1-p2-c1"}]
 
     result = evaluation_node(state)
 
-    assert result["evaluations"][-1]["metric_name"] == "citation_coverage"
+    assert result["evaluations"][-1]["metric_name"] == "answer_citation_support"
     assert result["evaluations"][-1]["passed"] is True
 
 

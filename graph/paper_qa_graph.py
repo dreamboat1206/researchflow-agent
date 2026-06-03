@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable
 
+from agents.evaluator_agent import EvaluatorAgent
 from agents.paper_qa_agent import (
     INSUFFICIENT_CONTEXT_ANSWER,
     _build_prompt,
@@ -89,23 +90,15 @@ def answer_generation_node(
     return next_state
 
 
-def evaluation_node(state: ResearchState) -> ResearchState:
+def evaluation_node(
+    state: ResearchState,
+    evaluator_agent: EvaluatorAgent | None = None,
+) -> ResearchState:
     next_state = _copy_state(state)
-    citations = list(next_state.get("citations") or [])
-    final_answer = str(next_state.get("final_answer") or "")
-    supported = bool(citations) and final_answer != INSUFFICIENT_CONTEXT_ANSWER and not next_state.get("error")
-    next_state["evaluations"] = list(next_state.get("evaluations") or []) + [
-        {
-            "metric_name": "citation_coverage",
-            "score": 1.0 if supported else 0.0,
-            "passed": supported,
-            "details": {
-                "citation_count": len(citations),
-                "has_answer": bool(final_answer),
-            },
-        }
-    ]
-    _append_trace(next_state, "evaluation_node", {"passed": supported})
+    evaluator = evaluator_agent or EvaluatorAgent()
+    evaluation = evaluator.evaluate_state(next_state)
+    next_state["evaluations"] = list(next_state.get("evaluations") or []) + [evaluation]
+    _append_trace(next_state, "evaluation_node", {"passed": evaluation["passed"]})
     return next_state
 
 
@@ -113,12 +106,13 @@ def build_paper_qa_graph(
     router_agent: RouterAgent | None = None,
     retrieval_agent: RetrievalAgent | None = None,
     llm_client: LLMClient | None = None,
+    evaluator_agent: EvaluatorAgent | None = None,
 ) -> Any:
     nodes = [
         lambda state: router_node(state, router_agent=router_agent),
         lambda state: text_retrieval_node(state, retrieval_agent=retrieval_agent),
         lambda state: answer_generation_node(state, llm_client=llm_client),
-        evaluation_node,
+        lambda state: evaluation_node(state, evaluator_agent=evaluator_agent),
     ]
     try:
         from langgraph.graph import END, StateGraph
@@ -144,6 +138,7 @@ def invoke_paper_qa(
     router_agent: RouterAgent | None = None,
     retrieval_agent: RetrievalAgent | None = None,
     llm_client: LLMClient | None = None,
+    evaluator_agent: EvaluatorAgent | None = None,
     config_path: str | Path = DEFAULT_CONFIG_PATH,
 ) -> ResearchState:
     if router_agent is None:
@@ -157,6 +152,7 @@ def invoke_paper_qa(
         router_agent=router_agent,
         retrieval_agent=retrieval_agent,
         llm_client=llm_client,
+        evaluator_agent=evaluator_agent,
     )
     initial_state = create_initial_state("paper_qa", user_query=query, top_k=top_k)
     initial_state["question"] = query
