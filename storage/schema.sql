@@ -4,6 +4,13 @@ CREATE TABLE IF NOT EXISTS papers (
     authors TEXT,
     year INTEGER,
     source_path TEXT,
+    original_path TEXT,
+    organized_path TEXT,
+    paper_type TEXT,
+    primary_topic TEXT,
+    organized_at TEXT,
+    organization_status TEXT DEFAULT 'pending',
+    filename_title_source TEXT,
     abstract TEXT,
     metadata TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -45,8 +52,38 @@ CREATE TABLE IF NOT EXISTS traces (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS paper_tags (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    paper_id TEXT NOT NULL,
+    tag TEXT NOT NULL,
+    tag_type TEXT NOT NULL,
+    confidence REAL DEFAULT 1.0,
+    source TEXT DEFAULT 'organizer',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(paper_id, tag, tag_type)
+);
+
+CREATE TABLE IF NOT EXISTS paper_collections (
+    collection_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT,
+    rule TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS paper_collection_items (
+    collection_id TEXT NOT NULL,
+    paper_id TEXT NOT NULL,
+    reason TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(collection_id, paper_id),
+    FOREIGN KEY (collection_id) REFERENCES paper_collections (collection_id) ON DELETE CASCADE
+);
+
 CREATE INDEX IF NOT EXISTS idx_chunks_paper_id ON chunks (paper_id);
 CREATE INDEX IF NOT EXISTS idx_figures_paper_id ON figures (paper_id);
 CREATE INDEX IF NOT EXISTS idx_figures_figure_id ON figures (figure_id);
 CREATE INDEX IF NOT EXISTS idx_traces_run_id ON traces (run_id);
+CREATE INDEX IF NOT EXISTS idx_paper_tags_paper_id ON paper_tags (paper_id);
+CREATE INDEX IF NOT EXISTS idx_paper_tags_tag_type ON paper_tags (tag_type);
 

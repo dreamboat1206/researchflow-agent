@@ -68,6 +68,12 @@ def _load_figures(api_base_url: str, params: dict[str, str | int]) -> list[dict[
     return response.json()
 
 
+def _load_organizer_papers(api_base_url: str, limit: int = 50) -> list[dict[str, Any]]:
+    response = httpx.get(f"{api_base_url}/organizer/papers", params={"limit": limit}, timeout=30)
+    response.raise_for_status()
+    return response.json()["papers"]
+
+
 st.set_page_config(
     page_title="ResearchFlow-Agent",
     layout="wide",
@@ -78,10 +84,11 @@ st.caption("A minimal workspace for research document workflows.")
 
 api_base_url = _api_base_url()
 
-home_tab, search_tab, figure_search_tab, qa_tab, figure_qa_tab, figures_tab, trace_tab = st.tabs(
+home_tab, search_tab, library_tab, figure_search_tab, qa_tab, figure_qa_tab, figures_tab, trace_tab = st.tabs(
     [
         "Overview",
         "Paper Search",
+        "Paper Library",
         "Figure Search",
         "Paper QA",
         "Figure QA",
@@ -125,6 +132,82 @@ with search_tab:
                         st.subheader(title)
                         st.caption(f"page: {page} | score: {_format_score(result.get('score'))}")
                         st.write(result.get("chunk_text") or "")
+
+with library_tab:
+    st.subheader("Paper Library")
+    control_cols = st.columns([1, 1, 1, 2])
+    paper_limit = control_cols[0].number_input("List limit", min_value=1, max_value=200, value=50)
+    selected_mode = control_cols[1].selectbox("Mode", ["copy", "move"])
+    batch_limit = control_cols[2].number_input("Batch limit", min_value=1, max_value=100, value=10)
+    refresh_requested = control_cols[3].button("Refresh papers")
+    if refresh_requested:
+        st.rerun()
+
+    with st.form("organizer-single-form"):
+        single_cols = st.columns([2, 1, 1])
+        organizer_paper_id = single_cols[0].text_input("paper_id", placeholder="1")
+        dry_run_submitted = single_cols[1].form_submit_button("Dry Run")
+        apply_submitted = single_cols[2].form_submit_button("Apply")
+
+    if dry_run_submitted or apply_submitted:
+        if not organizer_paper_id.strip():
+            st.warning("Please enter a paper_id.")
+        else:
+            try:
+                response = httpx.post(
+                    f"{api_base_url}/organizer/papers/{organizer_paper_id.strip()}",
+                    json={"dry_run": dry_run_submitted, "mode": selected_mode},
+                    timeout=60,
+                )
+                response.raise_for_status()
+                result = response.json()["result"]
+            except httpx.HTTPError as exc:
+                st.error(f"Organizer request failed: {exc}")
+            else:
+                st.success("Dry-run complete." if dry_run_submitted else "Paper organized.")
+                st.json(result)
+
+    with st.form("organizer-batch-form"):
+        batch_cols = st.columns([1, 1])
+        batch_dry_run = batch_cols[0].form_submit_button("Batch Dry Run")
+        batch_apply = batch_cols[1].form_submit_button("Batch Apply")
+
+    if batch_dry_run or batch_apply:
+        try:
+            response = httpx.post(
+                f"{api_base_url}/organizer/papers",
+                json={"dry_run": batch_dry_run, "mode": selected_mode, "limit": batch_limit},
+                timeout=120,
+            )
+            response.raise_for_status()
+            results = response.json()["results"]
+        except httpx.HTTPError as exc:
+            st.error(f"Batch organizer request failed: {exc}")
+        else:
+            st.success("Batch dry-run complete." if batch_dry_run else "Batch organization complete.")
+            st.json(results)
+
+    try:
+        papers = _load_organizer_papers(api_base_url, limit=int(paper_limit))
+    except httpx.HTTPError as exc:
+        st.error(f"Failed to load papers: {exc}")
+    else:
+        if not papers:
+            st.info("No ingested papers yet.")
+        for paper in papers:
+            title = paper.get("title") or f"Paper {paper.get('id')}"
+            with st.container(border=True):
+                st.subheader(title)
+                st.caption(
+                    f"paper_id: {paper.get('id')} | "
+                    f"type: {paper.get('paper_type') or '-'} | "
+                    f"topic: {paper.get('primary_topic') or '-'} | "
+                    f"year: {paper.get('year') or '-'} | "
+                    f"status: {paper.get('organization_status') or 'pending'}"
+                )
+                st.write(f"original_path: {paper.get('original_path') or paper.get('source_path') or '-'}")
+                st.write(f"organized_path: {paper.get('organized_path') or '-'}")
+                st.caption(f"filename_title_source: {paper.get('filename_title_source') or '-'}")
 
 with figure_search_tab:
     with st.form("figure-search-form"):

@@ -29,6 +29,14 @@ storage:
   data_dir: data
   upload_dir: data/uploads
 
+organizer:
+  library_root: data/library
+  default_mode: copy
+  folder_template: "{primary_topic}/{year}"
+  unknown_year: unknown_year
+  safe_filename_max_length: 120
+  auto_organize_after_ingest: false
+
 api:
   host: 127.0.0.1
   port: 8000

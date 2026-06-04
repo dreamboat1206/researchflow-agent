@@ -56,6 +56,56 @@ The schema is defined in `storage/schema.sql` and currently includes:
 - `figures` for extracted figure/table metadata linked to papers
 - `traces` for future agent and retrieval traces
 
+## Paper Organizer / 论文自动整理
+
+The paper organizer classifies ingested papers and plans or applies a structured
+library path:
+
+```text
+data/library/{primary_topic}/{year}/{paper_title}.pdf
+```
+
+The final file name comes from the paper title already extracted by the PDF
+parser and stored in SQLite `papers.title`. It does not re-parse the PDF title
+during organization. If the stored title is not usable, it falls back to the
+original PDF file stem.
+
+Dry-run mode only prints the classification and target path:
+
+```bash
+python main.py organize-papers --dry-run
+python main.py organize-paper PAPER_ID --dry-run
+```
+
+Apply mode writes organizer metadata to SQLite and copies or moves the PDF:
+
+```bash
+python main.py organize-paper PAPER_ID --apply --mode copy
+python main.py organize-paper PAPER_ID --apply --mode move
+```
+
+`copy` keeps the original PDF. `move` moves the original PDF to the organized
+library path. The default mode is `copy`.
+
+You can also organize immediately after ingest:
+
+```bash
+python main.py ingest-pdf data/inbox/example.pdf --organize
+```
+
+SQLite stores organizer output on `papers`:
+
+- `original_path`
+- `organized_path`
+- `paper_type`
+- `primary_topic`
+- `year`
+- `filename_title_source`
+- `organization_status`
+
+Organizer-generated tags are stored in `paper_tags`, and automatic groupings are
+stored in `paper_collections` and `paper_collection_items`.
+
 ## Figure And Table Metadata
 
 Figure and table metadata uses `models.figure_record.FigureRecord`. The stable

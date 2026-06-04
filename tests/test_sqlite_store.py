@@ -3,14 +3,27 @@ import uuid
 from pathlib import Path
 
 from storage.sqlite_store import (
+    add_paper_to_collection,
+    clear_organizer_results,
+    connect,
     get_paper,
+    get_paper_by_id,
+    get_chunks_for_paper,
+    get_db_path,
     init_db,
+    insert_paper_tag,
+    insert_paper_tags,
     insert_chunk,
     insert_figure,
     insert_figure_record,
     insert_paper,
+    list_collection_items,
+    list_collections,
+    list_paper_tags,
     list_papers,
     load_config,
+    create_collection,
+    update_paper_organization,
 )
 from models.figure_record import FigureRecord, FigureType
 
@@ -160,6 +173,95 @@ def test_load_config_applies_environment_overrides(monkeypatch) -> None:
     assert config["qdrant"]["collection_name"] == "papers_text"
     assert config["models"]["embedding_local_files_only"] is True
     assert config["api"]["port"] == 9000
+
+
+def test_organizer_sqlite_methods_insert_and_ignore_duplicates() -> None:
+    config_path = _write_config()
+    init_db(config_path)
+    paper_id = insert_paper(title="Organizer Paper", source_path="paper.pdf", config_path=config_path)
+    insert_chunk(
+        paper_id=paper_id,
+        chunk_index=0,
+        text="A survey of retrieval augmented generation.",
+        config_path=config_path,
+    )
+
+    update_paper_organization(
+        paper_id,
+        paper_type="survey",
+        primary_topic="rag",
+        year=2024,
+        original_path="paper.pdf",
+        organized_path="data/library/survey/rag/2024/Organizer_Paper.pdf",
+        filename_title_source="title",
+        config_path=config_path,
+    )
+    insert_paper_tag(paper_id, "survey", "paper_type", config_path=config_path)
+    insert_paper_tags(
+        paper_id,
+        [{"tag": "survey", "tag_type": "paper_type", "confidence": 0.9, "source": "organizer"}],
+        config_path=config_path,
+    )
+    create_collection("type_survey", "Survey Papers", rule="paper_type=survey", config_path=config_path)
+    add_paper_to_collection("type_survey", paper_id, "paper_type=survey", config_path=config_path)
+    add_paper_to_collection("type_survey", paper_id, "paper_type=survey", config_path=config_path)
+
+    paper = get_paper_by_id(paper_id, config_path=config_path)
+    chunks = get_chunks_for_paper(paper_id, config_path=config_path)
+    tags = list_paper_tags(paper_id, config_path=config_path)
+    collections = list_collections(config_path=config_path)
+    items = list_collection_items("type_survey", config_path=config_path)
+
+    assert paper is not None
+    assert paper["paper_type"] == "survey"
+    assert paper["primary_topic"] == "rag"
+    assert paper["organized_path"].endswith("Organizer_Paper.pdf")
+    assert chunks[0]["chunk_text"] == "A survey of retrieval augmented generation."
+    assert len(tags) == 1
+    assert collections[0]["collection_id"] == "type_survey"
+    assert len(items) == 1
+
+    clear_organizer_results(paper_id, config_path=config_path)
+    assert list_paper_tags(paper_id, config_path=config_path) == []
+    assert list_collection_items("type_survey", config_path=config_path) == []
+    assert get_paper(paper_id, config_path=config_path)["organization_status"] == "pending"
+
+
+def test_init_db_alters_old_papers_table_without_losing_data() -> None:
+    test_dir = Path("data/test_sqlite_store") / f"migration-{uuid.uuid4().hex}"
+    test_dir.mkdir(parents=True, exist_ok=True)
+    config_path = test_dir / "config.yaml"
+    config_path.write_text(
+        "database:\n"
+        "  path: old-schema.db\n",
+        encoding="utf-8",
+    )
+    db_path = get_db_path(config_path)
+    with connect(db_path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE papers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                authors TEXT,
+                year INTEGER,
+                source_path TEXT,
+                abstract TEXT,
+                metadata TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.execute("INSERT INTO papers (title, source_path) VALUES (?, ?)", ("Old Paper", "old.pdf"))
+
+    init_db(config_path)
+
+    paper = get_paper(1, config_path=config_path)
+
+    assert paper is not None
+    assert paper["title"] == "Old Paper"
+    assert paper["original_path"] == "old.pdf"
+    assert paper["organization_status"] == "pending"
 
 
 def _write_config() -> Path:

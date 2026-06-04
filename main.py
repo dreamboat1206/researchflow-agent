@@ -2,6 +2,7 @@ import argparse
 import json
 import sys
 
+from agents.organizer_agent import OrganizerAgent, PaperOrganizationResult
 from models.text_embedding import TextEmbeddingModel
 from models.image_embedding import ImageEmbeddingModel
 from storage.qdrant_store import QdrantFigureImageStore, QdrantFigureTextStore, QdrantTextStore
@@ -43,6 +44,37 @@ def main() -> None:
     )
     ingest_pdf_parser.add_argument("--chunk-size", type=int, default=1000)
     ingest_pdf_parser.add_argument("--overlap", type=int, default=100)
+    ingest_pdf_parser.add_argument(
+        "--organize",
+        action="store_true",
+        help="Organize the PDF into the structured library after ingest.",
+    )
+    ingest_pdf_parser.add_argument(
+        "--organize-mode",
+        choices=("copy", "move"),
+        default=None,
+        help="File operation mode for --organize. Defaults to organizer.default_mode.",
+    )
+
+    organize_paper_parser = subparsers.add_parser(
+        "organize-paper",
+        help="Classify and organize one ingested paper.",
+    )
+    organize_paper_parser.add_argument("paper_id", help="SQLite paper id.")
+    organize_paper_parser.add_argument("--config", default="config.yaml")
+    organize_paper_parser.add_argument("--dry-run", action="store_true", help="Plan without copying or moving.")
+    organize_paper_parser.add_argument("--apply", action="store_true", help="Apply file and SQLite changes.")
+    organize_paper_parser.add_argument("--mode", choices=("copy", "move"), default=None)
+
+    organize_papers_parser = subparsers.add_parser(
+        "organize-papers",
+        help="Classify and organize ingested papers.",
+    )
+    organize_papers_parser.add_argument("--config", default="config.yaml")
+    organize_papers_parser.add_argument("--dry-run", action="store_true", help="Plan without copying or moving.")
+    organize_papers_parser.add_argument("--apply", action="store_true", help="Apply file and SQLite changes.")
+    organize_papers_parser.add_argument("--mode", choices=("copy", "move"), default=None)
+    organize_papers_parser.add_argument("--limit", type=int, default=None)
 
     extract_figures_parser = subparsers.add_parser(
         "extract-figures",
@@ -81,8 +113,30 @@ def main() -> None:
             config_path=args.config,
             chunk_size=args.chunk_size,
             overlap=args.overlap,
+            organize=args.organize,
+            organize_mode=args.organize_mode,
         )
         print(json.dumps(result, ensure_ascii=False, indent=2))
+        return
+
+    if args.command == "organize-paper":
+        agent = OrganizerAgent(config_path=args.config)
+        result = agent.organize_paper(
+            args.paper_id,
+            dry_run=not args.apply,
+            mode=args.mode,
+        )
+        print(json.dumps(_organization_result_to_dict(result), ensure_ascii=False, indent=2))
+        return
+
+    if args.command == "organize-papers":
+        agent = OrganizerAgent(config_path=args.config)
+        results = agent.organize_all_papers(
+            dry_run=not args.apply,
+            mode=args.mode,
+            limit=args.limit,
+        )
+        print(json.dumps([_organization_result_to_dict(result) for result in results], ensure_ascii=False, indent=2))
         return
 
     if args.command == "extract-figures":
@@ -129,7 +183,9 @@ def ingest_pdf(
     config_path: str = "config.yaml",
     chunk_size: int = 1000,
     overlap: int = 100,
-) -> dict[str, int | str]:
+    organize: bool = False,
+    organize_mode: str | None = None,
+) -> dict[str, object]:
     init_db(config_path)
     parsed_pdf = parse_pdf(file_path)
     paper_id = insert_paper(
@@ -164,12 +220,27 @@ def ingest_pdf(
             config_path=config_path,
         )
 
-    return {
+    result: dict[str, object] = {
         "paper_id": paper_id,
         "chunks": len(chunks),
         "vectors": vector_count,
         "collection": qdrant_store.collection_name,
     }
+    if organize:
+        try:
+            organization = OrganizerAgent(config_path=config_path).organize_paper(
+                str(paper_id),
+                dry_run=False,
+                mode=organize_mode,
+            )
+            result["organization"] = _organization_result_to_dict(organization)
+        except Exception as error:
+            result["organization_error"] = str(error)
+    return result
+
+
+def _organization_result_to_dict(result: PaperOrganizationResult) -> dict[str, object]:
+    return result.to_dict()
 
 
 if __name__ == "__main__":
