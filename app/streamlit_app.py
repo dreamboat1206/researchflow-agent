@@ -78,8 +78,16 @@ st.caption("A minimal workspace for research document workflows.")
 
 api_base_url = _api_base_url()
 
-home_tab, search_tab, figure_search_tab, qa_tab, figures_tab, trace_tab = st.tabs(
-    ["Overview", "Paper Search", "Figure Search", "Paper QA", "Figure Gallery", "Trace Viewer"]
+home_tab, search_tab, figure_search_tab, qa_tab, figure_qa_tab, figures_tab, trace_tab = st.tabs(
+    [
+        "Overview",
+        "Paper Search",
+        "Figure Search",
+        "Paper QA",
+        "Figure QA",
+        "Figure Gallery",
+        "Trace Viewer",
+    ]
 )
 
 with home_tab:
@@ -214,6 +222,93 @@ with qa_tab:
                     page = citation.get("page") or "-"
                     chunk_id = citation.get("chunk_id") or "-"
                     st.caption(f"{title} | page: {page} | chunk_id: {chunk_id}")
+
+with figure_qa_tab:
+    with st.form("figure-qa-form"):
+        figure_question = st.text_input(
+            "Figure question",
+            placeholder="What does this figure show?",
+        )
+        figure_id_text = st.text_input(
+            "figure_id",
+            placeholder="Optional, for example 1_fig_2_1",
+        )
+        figure_query_text = st.text_input(
+            "Search query",
+            placeholder="Optional when figure_id is empty, for example Transformer architecture",
+        )
+        figure_qa_top_k = st.slider("Candidate figures", min_value=1, max_value=20, value=5)
+        figure_qa_submitted = st.form_submit_button("Ask Figure")
+
+    if figure_qa_submitted:
+        if not figure_question.strip():
+            st.warning("Please enter a figure question.")
+        elif not figure_id_text.strip() and not figure_query_text.strip():
+            st.warning("Please enter either a figure_id or a search query.")
+        else:
+            payload: dict[str, Any] = {
+                "question": figure_question,
+                "top_k": figure_qa_top_k,
+            }
+            if figure_id_text.strip():
+                payload["figure_id"] = figure_id_text.strip()
+            if figure_query_text.strip():
+                payload["query"] = figure_query_text.strip()
+            try:
+                response = httpx.post(
+                    f"{api_base_url}/qa/figure",
+                    json=payload,
+                    timeout=60,
+                )
+                response.raise_for_status()
+                result = response.json()
+            except httpx.HTTPError as exc:
+                st.error(f"Figure QA request failed: {exc}")
+            else:
+                if result.get("error"):
+                    st.error(result["error"])
+                st.subheader("Answer")
+                st.write(result.get("answer") or "")
+                st.caption(
+                    f"paper_id: {result.get('paper_id') or '-'} | "
+                    f"figure_id: {result.get('figure_id') or '-'} | "
+                    f"page: {result.get('page') or '-'}"
+                )
+
+                selected_figure = result.get("selected_figure") or {}
+                if selected_figure:
+                    with st.container(border=True):
+                        image_col, detail_col = st.columns([1, 2])
+                        image_path = _figure_image_path(selected_figure.get("image_path"))
+                        with image_col:
+                            if image_path and Path(image_path).exists():
+                                st.image(image_path, use_container_width=True)
+                            else:
+                                st.code(image_path or "No image path")
+                        with detail_col:
+                            st.subheader(selected_figure.get("figure_id") or "Selected figure")
+                            st.caption(
+                                f"paper_id: {selected_figure.get('paper_id') or '-'} | "
+                                f"page: {selected_figure.get('page') or '-'} | "
+                                f"type: {selected_figure.get('figure_type') or 'other'}"
+                            )
+                            st.write(selected_figure.get("caption") or "No caption matched yet.")
+                            with st.expander("Nearby text"):
+                                st.write(selected_figure.get("nearby_text") or "-")
+
+                citations = result.get("citations") or []
+                if citations:
+                    st.subheader("Citations")
+                    for citation in citations:
+                        st.caption(
+                            f"paper_id: {citation.get('paper_id') or '-'} | "
+                            f"figure_id: {citation.get('figure_id') or '-'} | "
+                            f"page: {citation.get('page') or '-'}"
+                        )
+                evaluations = result.get("evaluations") or []
+                if evaluations:
+                    with st.expander("Evaluation"):
+                        st.json(evaluations[-1])
 
 with figures_tab:
     st.subheader("Figure Gallery / 图表浏览")
