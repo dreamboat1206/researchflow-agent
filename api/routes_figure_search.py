@@ -6,7 +6,6 @@ from typing import Any
 
 from agents.figure_retrieval_agent import FigureRetrievalAgent
 from graph.figure_search_graph import invoke_figure_search
-from observability.trace_logger import TraceLogger
 
 
 router = APIRouter(prefix="/search", tags=["search"])
@@ -77,24 +76,11 @@ def search_figures_by_image_text(
     request: FigureSearchRequest,
     figure_retrieval_agent: FigureRetrievalAgent = Depends(get_figure_retrieval_agent),
 ) -> FigureImageSearchResponse:
-    logger = TraceLogger()
-    trace_id, started_at = logger.start_trace()
-    try:
-        results = figure_retrieval_agent.search_figures_by_image_text(request.query, top_k=request.top_k)
-        logger.log_graph_result(
-            trace_id=trace_id,
-            started_at=started_at,
-            task_type="figure_image_search",
-            query=request.query,
-            state={"retrieved_figures": results},
-        )
-        return FigureImageSearchResponse(query=request.query, top_k=request.top_k, results=results)
-    except Exception as error:
-        logger.log_exception(
-            trace_id=trace_id,
-            started_at=started_at,
-            task_type="figure_image_search",
-            query=request.query,
-            error=error,
-        )
-        raise
+    graph_state = invoke_figure_search(
+        request.query,
+        top_k=request.top_k,
+        mode="image",
+        figure_retrieval_agent=figure_retrieval_agent,
+    )
+    results = graph_state.get("retrieved_figures", [])
+    return FigureImageSearchResponse(query=request.query, top_k=request.top_k, results=results)

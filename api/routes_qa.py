@@ -5,8 +5,7 @@ from typing import Any
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
-from agents.paper_qa_agent import PaperQAAgent
-from observability.trace_logger import TraceLogger
+from graph.paper_qa_graph import invoke_paper_qa
 
 
 router = APIRouter(prefix="/qa", tags=["qa"])
@@ -28,43 +27,17 @@ class PaperQAResponse(BaseModel):
     citations: list[Citation]
 
 
-def get_paper_qa_agent() -> PaperQAAgent:
-    return PaperQAAgent()
+def get_paper_qa_invoker():
+    return invoke_paper_qa
 
 
 @router.post("/paper", response_model=PaperQAResponse)
 def qa_paper(
     request: PaperQARequest,
-    qa_agent: PaperQAAgent = Depends(get_paper_qa_agent),
+    paper_qa_invoker=Depends(get_paper_qa_invoker),
 ) -> dict[str, Any]:
-    logger = TraceLogger()
-    trace_id, started_at = logger.start_trace()
-    try:
-        result = qa_agent.answer_question(request.question, top_k=request.top_k)
-        logger.log_graph_result(
-            trace_id=trace_id,
-            started_at=started_at,
-            task_type="paper_qa",
-            query=request.question,
-            state={
-                "final_answer": result.get("answer"),
-                "citations": result.get("citations") or [],
-                "retrieved_chunks": [
-                    {
-                        "chunk_id": citation.get("chunk_id"),
-                        "page": citation.get("page"),
-                    }
-                    for citation in result.get("citations", [])
-                ],
-            },
-        )
-        return result
-    except Exception as error:
-        logger.log_exception(
-            trace_id=trace_id,
-            started_at=started_at,
-            task_type="paper_qa",
-            query=request.question,
-            error=error,
-        )
-        raise
+    graph_state = paper_qa_invoker(request.question, top_k=request.top_k)
+    return {
+        "answer": graph_state.get("final_answer") or graph_state.get("answer") or "",
+        "citations": graph_state.get("citations") or [],
+    }

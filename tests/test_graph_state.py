@@ -72,10 +72,13 @@ def test_retrieved_records_and_citations_have_expected_keys() -> None:
 
 def test_workflow_and_figure_search_modes_are_explicit() -> None:
     assert set(get_args(WorkflowName)) == {
+        "paper_search",
         "paper_ingest",
+        "figure_ingest",
         "paper_qa",
         "figure_search",
         "figure_qa",
+        "organizer",
     }
     assert set(get_args(FigureSearchMode)) == {"text", "image", "fusion"}
 

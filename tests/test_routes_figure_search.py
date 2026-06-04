@@ -32,6 +32,8 @@ class FakeFigureRetrievalAgent:
                     },
                 }
             ][:top_k]
+        if mode == "image":
+            return self.search_figures_by_image_text(query, top_k)
         return self.search_figures_by_text(query, top_k)
 
     def search_figures_by_text(self, query: str, top_k: int) -> list[dict[str, object]]:

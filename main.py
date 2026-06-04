@@ -2,7 +2,10 @@ import argparse
 import json
 import sys
 
-from agents.organizer_agent import OrganizerAgent, PaperOrganizationResult
+from agents.organizer_agent import OrganizerAgent
+from graph.figure_ingest_graph import invoke_figure_ingest
+from graph.organizer_graph import invoke_organize_paper, invoke_organize_papers
+from graph.paper_ingest_graph import invoke_paper_ingest
 from models.text_embedding import TextEmbeddingModel
 from models.image_embedding import ImageEmbeddingModel
 from storage.qdrant_store import QdrantFigureImageStore, QdrantFigureTextStore, QdrantTextStore
@@ -120,54 +123,47 @@ def main() -> None:
         return
 
     if args.command == "organize-paper":
-        agent = OrganizerAgent(config_path=args.config)
-        result = agent.organize_paper(
+        graph_state = invoke_organize_paper(
             args.paper_id,
             dry_run=not args.apply,
             mode=args.mode,
+            config_path=args.config,
         )
-        print(json.dumps(_organization_result_to_dict(result), ensure_ascii=False, indent=2))
+        print(json.dumps(graph_state.get("organization_result", {}), ensure_ascii=False, indent=2))
         return
 
     if args.command == "organize-papers":
-        agent = OrganizerAgent(config_path=args.config)
-        results = agent.organize_all_papers(
+        graph_state = invoke_organize_papers(
             dry_run=not args.apply,
             mode=args.mode,
             limit=args.limit,
+            config_path=args.config,
         )
-        print(json.dumps([_organization_result_to_dict(result) for result in results], ensure_ascii=False, indent=2))
+        print(json.dumps(graph_state.get("organization_results", []), ensure_ascii=False, indent=2))
         return
 
     if args.command == "extract-figures":
-        figures = extract_figures_from_pdf(
+        graph_state = invoke_figure_ingest(
             args.file_path,
             paper_id=args.paper_id,
             config_path=args.config,
             min_width=args.min_width,
             min_height=args.min_height,
-            write_to_sqlite=True,
+            extract_figures_func=extract_figures_from_pdf,
+            text_embedding_model_factory=TextEmbeddingModel,
+            figure_text_store_factory=QdrantFigureTextStore,
+            image_embedding_model_factory=ImageEmbeddingModel,
+            figure_image_store_factory=QdrantFigureImageStore,
         )
-        embedding_model = TextEmbeddingModel(config_path=args.config)
-        figure_store = QdrantFigureTextStore(embedding_model=embedding_model, config_path=args.config)
-        figure_store.create_collection()
-        vector_count = figure_store.upsert_figures_text(figures)
-        image_embedding_model = ImageEmbeddingModel(config_path=args.config)
-        figure_image_store = QdrantFigureImageStore(
-            embedding_model=image_embedding_model,
-            config_path=args.config,
-        )
-        figure_image_store.create_collection()
-        image_vector_count = figure_image_store.upsert_figures_image(figures)
         print(
             json.dumps(
                 {
-                    "figures": figures,
-                    "count": len(figures),
-                    "text_vectors": vector_count,
-                    "text_collection": figure_store.collection_name,
-                    "image_vectors": image_vector_count,
-                    "image_collection": figure_image_store.collection_name,
+                    "figures": graph_state.get("retrieved_figures", []),
+                    "count": graph_state.get("figure_count", 0),
+                    "text_vectors": graph_state.get("figure_text_vector_count", 0),
+                    "text_collection": graph_state.get("text_collection"),
+                    "image_vectors": graph_state.get("figure_image_vector_count", 0),
+                    "image_collection": graph_state.get("image_collection"),
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -186,62 +182,33 @@ def ingest_pdf(
     organize: bool = False,
     organize_mode: str | None = None,
 ) -> dict[str, object]:
-    init_db(config_path)
-    parsed_pdf = parse_pdf(file_path)
-    paper_id = insert_paper(
-        title=parsed_pdf.get("title") or file_path,
-        authors=parsed_pdf.get("authors"),
-        year=parsed_pdf.get("year"),
-        source_path=parsed_pdf["file_path"],
-        abstract=parsed_pdf.get("abstract"),
-        metadata=parsed_pdf.get("metadata"),
+    graph_state = invoke_paper_ingest(
+        file_path,
         config_path=config_path,
-    )
-    chunks = split_pages_to_chunks(
-        parsed_pdf["pages"],
-        paper_id=paper_id,
         chunk_size=chunk_size,
         overlap=overlap,
+        organize=organize,
+        organize_mode=organize_mode,
+        parse_pdf_func=parse_pdf,
+        init_db_func=init_db,
+        insert_paper_func=insert_paper,
+        split_pages_to_chunks_func=split_pages_to_chunks,
+        embedding_model_factory=TextEmbeddingModel,
+        qdrant_store_factory=QdrantTextStore,
+        insert_chunk_func=insert_chunk,
+        organizer_factory=OrganizerAgent,
     )
-
-    embedding_model = TextEmbeddingModel(config_path=config_path)
-    qdrant_store = QdrantTextStore(embedding_model=embedding_model, config_path=config_path)
-    qdrant_store.create_collection()
-    vector_count = qdrant_store.upsert_text_chunks(chunks)
-
-    for chunk_index, chunk in enumerate(chunks):
-        insert_chunk(
-            paper_id=paper_id,
-            chunk_index=chunk_index,
-            text=chunk["chunk_text"],
-            page_start=chunk["page"],
-            page_end=chunk["page"],
-            metadata={"chunk_id": chunk["chunk_id"]},
-            config_path=config_path,
-        )
-
     result: dict[str, object] = {
-        "paper_id": paper_id,
-        "chunks": len(chunks),
-        "vectors": vector_count,
-        "collection": qdrant_store.collection_name,
+        "paper_id": graph_state.get("paper_id"),
+        "chunks": len(graph_state.get("chunks") or []),
+        "vectors": graph_state.get("text_vector_count", 0),
+        "collection": graph_state.get("collection"),
     }
-    if organize:
-        try:
-            organization = OrganizerAgent(config_path=config_path).organize_paper(
-                str(paper_id),
-                dry_run=False,
-                mode=organize_mode,
-            )
-            result["organization"] = _organization_result_to_dict(organization)
-        except Exception as error:
-            result["organization_error"] = str(error)
+    if graph_state.get("organization"):
+        result["organization"] = graph_state["organization"]
+    if graph_state.get("organization_error"):
+        result["organization_error"] = graph_state["organization_error"]
     return result
-
-
-def _organization_result_to_dict(result: PaperOrganizationResult) -> dict[str, object]:
-    return result.to_dict()
-
 
 if __name__ == "__main__":
     main()

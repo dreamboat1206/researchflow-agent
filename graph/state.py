@@ -4,7 +4,15 @@ from typing import Any, Literal, TypedDict
 
 
 
-WorkflowName = Literal["paper_ingest", "paper_qa", "figure_search", "figure_qa"]
+WorkflowName = Literal[
+    "paper_search",
+    "paper_ingest",
+    "figure_ingest",
+    "paper_qa",
+    "figure_search",
+    "figure_qa",
+    "organizer",
+]
 FigureSearchMode = Literal["text", "image", "fusion"]
 
 
@@ -77,6 +85,13 @@ class ResearchState(TypedDict, total=False):
     figure_count: int
     figure_text_vector_count: int
     figure_image_vector_count: int
+    collection: str
+    text_collection: str
+    image_collection: str
+    organize_after_ingest: bool
+    organize_mode: str | None
+    organization: dict[str, Any]
+    organization_error: str
 
     # Paper QA state.
     question: str
@@ -90,6 +105,14 @@ class ResearchState(TypedDict, total=False):
     figure_query: str
     selected_figure: RetrievedFigure
     context_figures: list[RetrievedFigure]
+
+    # Organizer state.
+    dry_run: bool
+    mode: str | None
+    limit: int | None
+    papers: list[dict[str, Any]]
+    organization_result: dict[str, Any]
+    organization_results: list[dict[str, Any]]
 
 
 def create_initial_state(

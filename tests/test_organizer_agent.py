@@ -29,6 +29,25 @@ def test_organized_filename_prefers_paper_title_over_original_filename() -> None
     assert result.filename_title_source == "title"
 
 
+def test_organizer_resolves_windows_style_relative_pdf_path() -> None:
+    config_path = _write_config()
+    init_db(config_path)
+    pdf_path = config_path.parent / "data" / "test_pdf_parser" / "paper.pdf"
+    pdf_path.parent.mkdir(parents=True, exist_ok=True)
+    pdf_path.write_bytes(b"%PDF-1.4\n")
+    paper_id = insert_paper(
+        title="Attention Is All You Need",
+        source_path="data\\test_pdf_parser\\paper.pdf",
+        config_path=config_path,
+    )
+    agent = OrganizerAgent(config_path=config_path)
+
+    result = agent.organize_paper(str(paper_id), dry_run=False, mode="copy")
+
+    assert result.organized_path is not None
+    assert Path(result.organized_path).exists()
+
+
 def test_organized_path_does_not_include_paper_type_folder() -> None:
     config_path = _write_config()
     agent = OrganizerAgent(config_path=config_path)

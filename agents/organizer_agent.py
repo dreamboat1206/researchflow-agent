@@ -48,7 +48,10 @@ class OrganizerAgent:
         if paper is None:
             raise ValueError(f"Paper not found: {paper_id}")
         chunks = self.sqlite_store.get_chunks_for_paper(paper_id, limit=10, config_path=self.config_path)
-        original_path = Path(paper.get("original_path") or paper.get("source_path") or "")
+        original_path = _resolve_original_path(
+            paper.get("original_path") or paper.get("source_path") or "",
+            self.config_path,
+        )
         title, title_source = self.select_existing_title_for_filename(paper, original_path)
         classification = self.classify_paper(paper, chunks)
         action = mode or str(self.organizer_config.get("default_mode") or "copy")
@@ -326,3 +329,25 @@ def _deduplicate_path(path: Path) -> Path:
         if not candidate.exists():
             return candidate
     raise RuntimeError(f"Could not find available path for {path}")
+
+
+def _resolve_original_path(value: Any, config_path: str | Path) -> Path:
+    raw_path = str(value or "").strip()
+    if not raw_path:
+        return Path("")
+
+    config_root = Path(config_path).resolve().parent
+    normalized = raw_path.replace("\\", "/")
+    candidates = [Path(raw_path), Path(normalized)]
+    if not Path(normalized).is_absolute():
+        candidates.append(config_root / normalized)
+
+    lowered = normalized.lower()
+    data_index = lowered.find("data/")
+    if data_index >= 0:
+        candidates.append(config_root / normalized[data_index:])
+
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[-1] if candidates else Path(raw_path)
