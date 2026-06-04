@@ -1,467 +1,51 @@
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Callable
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-import httpx
 import streamlit as st
 
-from observability.trace_logger import list_recent_traces
+from app.ui.api_client import ResearchFlowApiClient
+from app.ui.pages import add_paper, ask, dashboard, library, organizer, paper_detail, paper_reader, search, system_debug
+from app.ui.state import init_state
+from app.ui.styles import apply_theme
 
 
-def _api_base_url() -> str:
-    host = os.environ.get("API_HOST", "127.0.0.1")
-    port = os.environ.get("API_PORT", "8000")
-    if host.startswith("http://") or host.startswith("https://"):
-        return host.rstrip("/")
-    return f"http://{host}:{port}"
+PageRenderer = Callable[[ResearchFlowApiClient], None]
 
 
-def _format_score(score: object) -> str:
-    if isinstance(score, int | float):
-        return f"{score:.4f}"
-    return "-"
+PAGES: dict[str, PageRenderer] = {
+    "Dashboard": dashboard.render,
+    "Add Paper": add_paper.render,
+    "Library": library.render,
+    "Search": search.render,
+    "Ask Papers": ask.render,
+    "Paper Detail": paper_detail.render,
+    "Paper Reader": paper_reader.render,
+    "Organizer": organizer.render,
+    "System / Debug": system_debug.render,
+}
 
 
-def _figure_query_params(paper_id_text: str, title_query: str) -> dict[str, str | int]:
-    params: dict[str, str | int] = {}
-    if paper_id_text.strip():
-        params["paper_id"] = int(paper_id_text.strip())
-    if title_query.strip():
-        params["title"] = title_query.strip()
-    return params
+def main() -> None:
+    st.set_page_config(page_title="ResearchFlow-Agent", layout="wide")
+    apply_theme()
+    init_state()
+
+    st.sidebar.title("ResearchFlow")
+    api_url = st.sidebar.text_input("API URL", value=st.session_state["api_url"])
+    st.session_state["api_url"] = api_url.rstrip("/")
+    page_name = st.sidebar.radio("Navigation", list(PAGES.keys()))
+
+    client = ResearchFlowApiClient(st.session_state["api_url"])
+    st.title(page_name)
+    PAGES[page_name](client)
 
 
-def _figure_image_path(image_path: str | None) -> str | None:
-    if not image_path:
-        return None
-    path = Path(image_path)
-    if path.exists():
-        return str(path)
-    if not path.is_absolute():
-        candidate = Path.cwd() / path
-        if candidate.exists():
-            return str(candidate)
-    container_prefix = "/app/"
-    if image_path.startswith(container_prefix):
-        candidate = Path(image_path[len(container_prefix) :])
-        if candidate.exists():
-            return str(candidate)
-    normalized_path = image_path.replace("\\", "/")
-    data_index = normalized_path.lower().find("data/")
-    if data_index >= 0:
-        candidate = Path(normalized_path[data_index:])
-        if candidate.exists():
-            return str(candidate)
-    return image_path
-
-
-def _load_figures(api_base_url: str, params: dict[str, str | int]) -> list[dict[str, Any]]:
-    response = httpx.get(f"{api_base_url}/figures", params=params, timeout=30)
-    response.raise_for_status()
-    return response.json()
-
-
-def _load_organizer_papers(api_base_url: str, limit: int = 50) -> list[dict[str, Any]]:
-    response = httpx.get(f"{api_base_url}/organizer/papers", params={"limit": limit}, timeout=30)
-    response.raise_for_status()
-    return response.json()["papers"]
-
-
-st.set_page_config(
-    page_title="ResearchFlow-Agent",
-    layout="wide",
-)
-
-st.title("ResearchFlow-Agent")
-st.caption("A minimal workspace for research document workflows.")
-
-api_base_url = _api_base_url()
-
-home_tab, search_tab, library_tab, figure_search_tab, qa_tab, figure_qa_tab, figures_tab, trace_tab = st.tabs(
-    [
-        "Overview",
-        "Paper Search",
-        "Paper Library",
-        "Figure Search",
-        "Paper QA",
-        "Figure QA",
-        "Figure Gallery",
-        "Trace Viewer",
-    ]
-)
-
-with home_tab:
-    st.write("Project scaffold is ready. Use the API health check to verify the backend.")
-    if st.button("Check local API path"):
-        st.code(f"GET {api_base_url}/health")
-
-with search_tab:
-    with st.form("paper-search-form"):
-        query = st.text_input("Search text", placeholder="Enter a paper topic, method, or keyword")
-        top_k = st.slider("Number of results", min_value=1, max_value=20, value=5)
-        submitted = st.form_submit_button("Search")
-
-    if submitted:
-        if not query.strip():
-            st.warning("Please enter search text.")
-        else:
-            try:
-                response = httpx.post(
-                    f"{api_base_url}/search/text",
-                    json={"query": query, "top_k": top_k},
-                    timeout=30,
-                )
-                response.raise_for_status()
-                results = response.json()["results"]
-            except httpx.HTTPError as exc:
-                st.error(f"Search request failed: {exc}")
-            else:
-                if not results:
-                    st.info("No relevant chunks found.")
-                for result in results:
-                    title = result.get("title") or f"Paper {result.get('paper_id')}"
-                    page = result.get("page") or "-"
-                    with st.container(border=True):
-                        st.subheader(title)
-                        st.caption(f"page: {page} | score: {_format_score(result.get('score'))}")
-                        st.write(result.get("chunk_text") or "")
-
-with library_tab:
-    st.subheader("Paper Library")
-    control_cols = st.columns([1, 1, 1, 2])
-    paper_limit = control_cols[0].number_input("List limit", min_value=1, max_value=200, value=50)
-    selected_mode = control_cols[1].selectbox("Mode", ["copy", "move"])
-    batch_limit = control_cols[2].number_input("Batch limit", min_value=1, max_value=100, value=10)
-    refresh_requested = control_cols[3].button("Refresh papers")
-    if refresh_requested:
-        st.rerun()
-
-    with st.form("organizer-single-form"):
-        single_cols = st.columns([2, 1, 1])
-        organizer_paper_id = single_cols[0].text_input("paper_id", placeholder="1")
-        dry_run_submitted = single_cols[1].form_submit_button("Dry Run")
-        apply_submitted = single_cols[2].form_submit_button("Apply")
-
-    if dry_run_submitted or apply_submitted:
-        if not organizer_paper_id.strip():
-            st.warning("Please enter a paper_id.")
-        else:
-            try:
-                response = httpx.post(
-                    f"{api_base_url}/organizer/papers/{organizer_paper_id.strip()}",
-                    json={"dry_run": dry_run_submitted, "mode": selected_mode},
-                    timeout=60,
-                )
-                response.raise_for_status()
-                result = response.json()["result"]
-            except httpx.HTTPError as exc:
-                st.error(f"Organizer request failed: {exc}")
-            else:
-                st.success("Dry-run complete." if dry_run_submitted else "Paper organized.")
-                st.json(result)
-
-    with st.form("organizer-batch-form"):
-        batch_cols = st.columns([1, 1])
-        batch_dry_run = batch_cols[0].form_submit_button("Batch Dry Run")
-        batch_apply = batch_cols[1].form_submit_button("Batch Apply")
-
-    if batch_dry_run or batch_apply:
-        try:
-            response = httpx.post(
-                f"{api_base_url}/organizer/papers",
-                json={"dry_run": batch_dry_run, "mode": selected_mode, "limit": batch_limit},
-                timeout=120,
-            )
-            response.raise_for_status()
-            results = response.json()["results"]
-        except httpx.HTTPError as exc:
-            st.error(f"Batch organizer request failed: {exc}")
-        else:
-            st.success("Batch dry-run complete." if batch_dry_run else "Batch organization complete.")
-            st.json(results)
-
-    try:
-        papers = _load_organizer_papers(api_base_url, limit=int(paper_limit))
-    except httpx.HTTPError as exc:
-        st.error(f"Failed to load papers: {exc}")
-    else:
-        if not papers:
-            st.info("No ingested papers yet.")
-        for paper in papers:
-            title = paper.get("title") or f"Paper {paper.get('id')}"
-            with st.container(border=True):
-                st.subheader(title)
-                st.caption(
-                    f"paper_id: {paper.get('id')} | "
-                    f"type: {paper.get('paper_type') or '-'} | "
-                    f"topic: {paper.get('primary_topic') or '-'} | "
-                    f"year: {paper.get('year') or '-'} | "
-                    f"status: {paper.get('organization_status') or 'pending'}"
-                )
-                st.write(f"original_path: {paper.get('original_path') or paper.get('source_path') or '-'}")
-                st.write(f"organized_path: {paper.get('organized_path') or '-'}")
-                st.caption(f"filename_title_source: {paper.get('filename_title_source') or '-'}")
-
-with figure_search_tab:
-    with st.form("figure-search-form"):
-        figure_search_mode = st.selectbox(
-            "Search mode",
-            ["Fusion", "Caption + nearby text", "Image embedding"],
-        )
-        figure_query = st.text_input(
-            "Figure search text",
-            placeholder="Find Transformer architecture figures",
-        )
-        figure_top_k = st.slider("Number of figures", min_value=1, max_value=20, value=5)
-        figure_submitted = st.form_submit_button("Search Figures")
-
-    if figure_submitted:
-        if not figure_query.strip():
-            st.warning("Please enter figure search text.")
-        else:
-            endpoint = "/search/figures/image-text" if figure_search_mode == "Image embedding" else "/search/figures"
-            payload = {"query": figure_query, "top_k": figure_top_k}
-            if figure_search_mode == "Fusion":
-                payload["mode"] = "fusion"
-            try:
-                response = httpx.post(
-                    f"{api_base_url}{endpoint}",
-                    json=payload,
-                    timeout=30,
-                )
-                response.raise_for_status()
-                results = response.json()["results"]
-            except httpx.HTTPError as exc:
-                st.error(f"Figure search request failed: {exc}")
-            else:
-                if not results:
-                    st.info("No relevant figures found.")
-                for result in results:
-                    with st.container(border=True):
-                        image_col, detail_col = st.columns([1, 2])
-                        image_path = _figure_image_path(result.get("image_path"))
-                        with image_col:
-                            if image_path and Path(image_path).exists():
-                                st.image(image_path, use_container_width=True)
-                            else:
-                                st.code(image_path or "No image path")
-                        with detail_col:
-                            st.subheader(result.get("figure_id") or "Figure")
-                            st.caption(
-                                f"paper_id: {result.get('paper_id') or '-'} | "
-                                f"page: {result.get('page') or '-'} | "
-                                f"type: {result.get('figure_type') or 'other'} | "
-                                f"score: {_format_score(result.get('final_score') or result.get('score'))}"
-                            )
-                            st.write(result.get("caption") or "No caption matched yet.")
-                            if result.get("score_breakdown"):
-                                scores = result["score_breakdown"]
-                                st.caption(
-                                    "caption: "
-                                    f"{_format_score(scores.get('caption_text_score'))} | "
-                                    f"image: {_format_score(scores.get('image_score'))} | "
-                                    f"nearby: {_format_score(scores.get('nearby_text_score'))} | "
-                                    f"final: {_format_score(result.get('final_score'))}"
-                                )
-                            with st.expander("Nearby text"):
-                                st.write(result.get("nearby_text") or "-")
-
-with qa_tab:
-    with st.form("paper-qa-form"):
-        question = st.text_input("Question", placeholder="Ask a question about ingested papers")
-        qa_top_k = st.slider("Context chunks", min_value=1, max_value=20, value=5)
-        qa_submitted = st.form_submit_button("Ask")
-
-    if qa_submitted:
-        if not question.strip():
-            st.warning("Please enter a question.")
-        else:
-            try:
-                response = httpx.post(
-                    f"{api_base_url}/qa/paper",
-                    json={"question": question, "top_k": qa_top_k},
-                    timeout=60,
-                )
-                response.raise_for_status()
-                result = response.json()
-            except httpx.HTTPError as exc:
-                st.error(f"QA request failed: {exc}")
-            else:
-                st.subheader("Answer")
-                st.write(result["answer"])
-                st.subheader("Citations")
-                citations = result.get("citations", [])
-                if not citations:
-                    st.info("No citations returned.")
-                for citation in citations:
-                    title = citation.get("title") or "Unknown paper"
-                    page = citation.get("page") or "-"
-                    chunk_id = citation.get("chunk_id") or "-"
-                    st.caption(f"{title} | page: {page} | chunk_id: {chunk_id}")
-
-with figure_qa_tab:
-    with st.form("figure-qa-form"):
-        figure_question = st.text_input(
-            "Figure question",
-            placeholder="What does this figure show?",
-        )
-        figure_id_text = st.text_input(
-            "figure_id",
-            placeholder="Optional, for example 1_fig_2_1",
-        )
-        figure_query_text = st.text_input(
-            "Search query",
-            placeholder="Optional when figure_id is empty, for example Transformer architecture",
-        )
-        figure_qa_top_k = st.slider("Candidate figures", min_value=1, max_value=20, value=5)
-        figure_qa_submitted = st.form_submit_button("Ask Figure")
-
-    if figure_qa_submitted:
-        if not figure_question.strip():
-            st.warning("Please enter a figure question.")
-        elif not figure_id_text.strip() and not figure_query_text.strip():
-            st.warning("Please enter either a figure_id or a search query.")
-        else:
-            payload: dict[str, Any] = {
-                "question": figure_question,
-                "top_k": figure_qa_top_k,
-            }
-            if figure_id_text.strip():
-                payload["figure_id"] = figure_id_text.strip()
-            if figure_query_text.strip():
-                payload["query"] = figure_query_text.strip()
-            try:
-                response = httpx.post(
-                    f"{api_base_url}/qa/figure",
-                    json=payload,
-                    timeout=60,
-                )
-                response.raise_for_status()
-                result = response.json()
-            except httpx.HTTPError as exc:
-                st.error(f"Figure QA request failed: {exc}")
-            else:
-                if result.get("error"):
-                    st.error(result["error"])
-                st.subheader("Answer")
-                st.write(result.get("answer") or "")
-                st.caption(
-                    f"paper_id: {result.get('paper_id') or '-'} | "
-                    f"figure_id: {result.get('figure_id') or '-'} | "
-                    f"page: {result.get('page') or '-'}"
-                )
-
-                selected_figure = result.get("selected_figure") or {}
-                if selected_figure:
-                    with st.container(border=True):
-                        image_col, detail_col = st.columns([1, 2])
-                        image_path = _figure_image_path(selected_figure.get("image_path"))
-                        with image_col:
-                            if image_path and Path(image_path).exists():
-                                st.image(image_path, use_container_width=True)
-                            else:
-                                st.code(image_path or "No image path")
-                        with detail_col:
-                            st.subheader(selected_figure.get("figure_id") or "Selected figure")
-                            st.caption(
-                                f"paper_id: {selected_figure.get('paper_id') or '-'} | "
-                                f"page: {selected_figure.get('page') or '-'} | "
-                                f"type: {selected_figure.get('figure_type') or 'other'}"
-                            )
-                            st.write(selected_figure.get("caption") or "No caption matched yet.")
-                            with st.expander("Nearby text"):
-                                st.write(selected_figure.get("nearby_text") or "-")
-
-                citations = result.get("citations") or []
-                if citations:
-                    st.subheader("Citations")
-                    for citation in citations:
-                        st.caption(
-                            f"paper_id: {citation.get('paper_id') or '-'} | "
-                            f"figure_id: {citation.get('figure_id') or '-'} | "
-                            f"page: {citation.get('page') or '-'}"
-                        )
-                evaluations = result.get("evaluations") or []
-                if evaluations:
-                    with st.expander("Evaluation"):
-                        st.json(evaluations[-1])
-
-with figures_tab:
-    st.subheader("Figure Gallery / 图表浏览")
-    with st.form("figure-filter-form"):
-        filter_cols = st.columns([1, 3, 1])
-        paper_id_text = filter_cols[0].text_input("paper_id", placeholder="1")
-        title_query = filter_cols[1].text_input("Paper title", placeholder="ZoomDet")
-        gallery_submitted = filter_cols[2].form_submit_button("Load")
-
-    if gallery_submitted:
-        try:
-            figures = _load_figures(api_base_url, _figure_query_params(paper_id_text, title_query))
-        except ValueError:
-            st.error("paper_id must be a number.")
-        except httpx.HTTPError as exc:
-            st.error(f"Figure request failed: {exc}")
-        else:
-            if not figures:
-                st.info("No figures found. Extract figures first, then reload the gallery.")
-            for figure in figures:
-                title = figure.get("paper_title") or f"Paper {figure.get('paper_id')}"
-                caption = figure.get("caption") or "No caption matched yet."
-                with st.container(border=True):
-                    image_col, detail_col = st.columns([1, 2])
-                    image_path = _figure_image_path(figure.get("image_path"))
-                    with image_col:
-                        if image_path and Path(image_path).exists():
-                            st.image(image_path, use_container_width=True)
-                        else:
-                            st.code(image_path or "No image path")
-                    with detail_col:
-                        st.subheader(figure.get("figure_id") or "Figure")
-                        st.caption(
-                            f"{title} | page: {figure.get('page') or '-'} | "
-                            f"type: {figure.get('figure_type') or 'other'}"
-                        )
-                        st.write(caption)
-                        with st.expander("Details"):
-                            st.write(f"image_path: {figure.get('image_path') or '-'}")
-                            st.write(f"paper_id: {figure.get('paper_id')}")
-                            st.write(f"page: {figure.get('page') or '-'}")
-                            st.write(f"caption: {figure.get('caption') or '-'}")
-                            st.write(f"nearby_text: {figure.get('nearby_text') or '-'}")
-
-with trace_tab:
-    st.subheader("Trace Viewer")
-    trace_limit = st.slider("Recent traces", min_value=5, max_value=100, value=20, step=5)
-    if st.button("Refresh traces"):
-        st.rerun()
-
-    try:
-        traces = list_recent_traces(limit=trace_limit)
-    except Exception as exc:
-        st.error(f"Failed to load traces: {exc}")
-    else:
-        if not traces:
-            st.info("No traces recorded yet. Run a QA or search request first.")
-        for trace in traces:
-            success = "success" if trace.get("success") else "failed"
-            title = (
-                f"{trace.get('task_type') or 'unknown'} | {success} | "
-                f"{trace.get('latency_ms')} ms"
-            )
-            with st.expander(title):
-                st.caption(f"trace_id: {trace.get('trace_id')}")
-                st.write(f"query: {trace.get('query') or '-'}")
-                if trace.get("error_message"):
-                    st.error(trace["error_message"])
-                retrieved_items = trace.get("retrieved_items") or []
-                st.write(f"retrieved_items: {len(retrieved_items)}")
-                if trace.get("final_answer"):
-                    st.write(trace["final_answer"])
-                st.json(trace)
+if __name__ == "__main__":
+    main()

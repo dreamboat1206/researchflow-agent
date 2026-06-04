@@ -69,6 +69,11 @@ class FakeOrganizerAgent:
         return [FakeOrganizationResult(paper_id="1", dry_run=dry_run, action=mode or "copy")]
 
 
+class MissingPaperOrganizerAgent(FakeOrganizerAgent):
+    def organize_paper(self, paper_id: str, dry_run: bool = True, mode: str | None = None):
+        raise ValueError(f"Paper not found: {paper_id}")
+
+
 def test_list_organizer_papers_route_returns_papers() -> None:
     app.dependency_overrides[get_organizer_agent] = lambda: FakeOrganizerAgent()
     client = TestClient(app)
@@ -94,6 +99,17 @@ def test_organize_paper_route_returns_result() -> None:
     assert result["paper_id"] == "1"
     assert result["dry_run"] is False
     assert result["organized_path"] == "data/library/transformer/2017/Attention_Is_All_You_Need.pdf"
+
+
+def test_organize_paper_route_returns_404_for_missing_paper() -> None:
+    app.dependency_overrides[get_organizer_agent] = lambda: MissingPaperOrganizerAgent()
+    client = TestClient(app)
+
+    response = client.post("/organizer/papers/999", json={"dry_run": False, "mode": "copy"})
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Paper not found: 999"
 
 
 def test_organize_papers_route_returns_batch_results() -> None:

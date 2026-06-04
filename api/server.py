@@ -5,7 +5,9 @@ from api.routes_figure_search import router as figure_search_router
 from api.routes_figures import router as figures_router
 from api.routes_organizer import router as organizer_router
 from api.routes_paper import router as paper_router
+from api.routes_papers import router as papers_router
 from api.routes_qa import router as qa_router
+from api.routes_system import router as system_router
 
 
 app = FastAPI(
@@ -15,11 +17,13 @@ app = FastAPI(
 )
 
 app.include_router(paper_router)
+app.include_router(papers_router)
 app.include_router(figure_search_router)
 app.include_router(qa_router)
 app.include_router(figure_qa_router)
 app.include_router(figures_router)
 app.include_router(organizer_router)
+app.include_router(system_router)
 
 
 @app.get("/health")

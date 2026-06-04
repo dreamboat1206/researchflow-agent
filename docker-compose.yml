@@ -34,6 +34,7 @@ services:
     ports:
       - "8501:8501"
     environment:
+      API_URL: http://api:8000
       API_HOST: api
       API_PORT: "8000"
       QDRANT_URL: http://qdrant:6333

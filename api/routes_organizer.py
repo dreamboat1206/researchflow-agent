@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 from agents.organizer_agent import OrganizerAgent
 from graph.organizer_graph import invoke_list_organizer_papers, invoke_organize_paper, invoke_organize_papers
+from storage.sqlite_store import list_collections, list_paper_tags
 
 
 router = APIRouter(prefix="/organizer", tags=["organizer"])
@@ -25,6 +26,19 @@ class OrganizePapersRequest(BaseModel):
 
 def get_organizer_agent() -> OrganizerAgent:
     return OrganizerAgent()
+
+
+@router.get("/tags")
+def organizer_tags(
+    paper_id: int | None = None,
+    tag_type: str | None = None,
+) -> dict[str, Any]:
+    return {"tags": list_paper_tags(paper_id=paper_id, tag_type=tag_type)}
+
+
+@router.get("/collections")
+def organizer_collections() -> dict[str, Any]:
+    return {"collections": list_collections()}
 
 
 @router.get("/papers")
@@ -52,6 +66,8 @@ def organize_paper(
             mode=request.mode,
             organizer_agent=organizer_agent,
         )
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
     except FileNotFoundError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     return {"result": graph_state.get("organization_result", {})}
@@ -69,6 +85,8 @@ def organize_papers(
             limit=request.limit,
             organizer_agent=organizer_agent,
         )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
     except FileNotFoundError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     return {"results": graph_state.get("organization_results", [])}
